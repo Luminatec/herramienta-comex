@@ -177,7 +177,7 @@ function timelineHTML(){const H=90;const ev=[];const over=[];
  const grid=[15,30,45,60,75].map(g=>'<div class="tlgrid" style="left:'+(g/H*100)+'%"><span>'+g+'d</span></div>').join('');
  const marks=ev.map(e=>'<div class="tlmark" style="left:'+(e.d/H*100).toFixed(1)+'%;background:'+e.color+'" title="+'+e.d+'d ('+fmtD(dateFromDays(e.d))+'): '+e.label.replace(/"/g,'&quot;')+'"></div>').join('');
  const list=ev.map(e=>'<div class="tlrow"><span class="tldot" style="background:'+e.color+'"></span><b>+'+e.d+'d</b> · '+fmtD(dateFromDays(e.d))+' · '+e.label+'</div>').join('');
- return '<div class="card"><h3>Línea de tiempo — próximos 90 días</h3><div class="muted small">🔵 arribos · 🟠 pagos'+(over.length?(' · ⚠ vencidos: '+over.join('; ')):'')+'</div><div class="tlbar">'+grid+marks+'<div class="tlnow"></div></div><div class="tllist">'+list+'</div></div>';}
+ return '<div class="card"><h3>Línea de tiempo — próximos 90 días</h3><div class="muted small">🔵 arribos · 🟠 pagos'+(over.length?(' · ⚠ vencidos: '+over.join('; ')):'')+'</div><div class="tlbar">'+grid+marks+'<div class="tlnow"></div></div><div class="tllist">'+list+'</div>'+(noDate.length?'<div class="muted small" style="margin-top:8px">💲 Pagos pendientes <b>sin fecha de vencimiento</b> (no se ubican en la línea): '+noDate.join('; ')+'. Cargales el vencimiento en la tarjeta para verlos acá.</div>':'')+'</div>';}
 async function loadCardDocs(ix){const el=document.getElementById('cd_'+ix);if(!el)return;const r=S.seg[ix];
  if(!FSA||!fsGranted){el.innerHTML='<span class="exl">Documentos</span> <span class="muted small">Conectá la carpeta (arriba en Seguimiento) para abrir archivos.</span>';return;}
  if(!r.id){el.innerHTML='';return;}
