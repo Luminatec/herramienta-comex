@@ -1,0 +1,757 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Herramienta COMEX — Luminatec</title>
+<script src="https://alcdn.msauth.net/browser/3.10.0/js/msal-browser.min.js"></script>
+<style>
+:root{--navy:#14453f;--teal:#2c7a70;--teal2:#3a9b8e;--cream:#fff3d6;--ink:#1f2d2b;--grey:#eceff1;--green:#d6e9d5;--amber:#fbe2b3;--red:#f6c9ce;--blue:#1f4e79;}
+*{box-sizing:border-box}
+body{font-family:Arial,Helvetica,sans-serif;margin:0;color:var(--ink);background:#f4f6f6;font-size:14px}
+header{background:var(--navy);color:#fff;padding:14px 20px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px}
+header h1{font-size:18px;margin:0}
+header .actions button{margin-left:6px}
+nav{background:var(--teal);display:flex;flex-wrap:wrap}
+nav button{background:transparent;border:0;color:#fff;padding:12px 18px;cursor:pointer;font-size:14px;font-weight:bold;opacity:.8}
+nav button.active{background:#fff;color:var(--teal);opacity:1}
+main{padding:18px;max-width:1200px;margin:0 auto}
+.tab{display:none}.tab.active{display:block}
+h2{color:var(--navy);border-bottom:2px solid var(--teal);padding-bottom:6px}
+h3{color:var(--teal);margin-bottom:6px}
+table{border-collapse:collapse;width:100%;background:#fff;margin:8px 0}
+th,td{border:1px solid #cfd8d8;padding:6px 8px;text-align:left}
+th{background:var(--teal);color:#fff;font-size:12px}
+input,select{font-family:inherit;font-size:13px;padding:5px;border:1px solid #b9c6c4;border-radius:4px;width:100%}
+input.in{background:var(--cream);color:var(--blue);font-weight:bold}
+td input{border:0;background:transparent;padding:4px}
+td input.in{background:var(--cream)}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:20px}
+@media(max-width:800px){.grid{grid-template-columns:1fr}}
+.card{background:#fff;border:1px solid #dbe3e2;border-radius:8px;padding:14px;margin-bottom:14px}
+.res{display:flex;justify-content:space-between;padding:5px 8px;border-bottom:1px solid #eee}
+.res b{color:var(--navy)}
+.res.k{background:var(--amber);font-weight:bold;border-radius:4px}
+.res.g{background:var(--green);font-weight:bold;border-radius:4px}
+.res.mut{color:#888;font-size:13px}
+.field{display:flex;justify-content:space-between;align-items:center;gap:8px;margin:5px 0}
+.field label{flex:1;font-size:13px}
+.field input,.field select{flex:0 0 130px}
+button{background:var(--teal);color:#fff;border:0;padding:8px 12px;border-radius:5px;cursor:pointer;font-size:13px}
+button.sec{background:#7b8f8c}
+button.mini{padding:3px 8px;font-size:12px}
+.pill{padding:2px 8px;border-radius:10px;font-size:12px;font-weight:bold;display:inline-block}
+.muted{color:#777;font-size:12px}
+.right{text-align:right}
+.tools{margin:10px 0;display:flex;gap:8px;flex-wrap:wrap}
+.note{background:#eef5f4;border-left:4px solid var(--teal);padding:8px 12px;font-size:13px;margin:8px 0}
+.segh{font-weight:bold;color:var(--navy);margin:18px 0 8px;padding:4px 0 4px 10px;border-left:6px solid var(--teal);font-size:15px}
+.cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:12px}
+.scard{background:#fff;border:1px solid #dbe3e2;border-radius:8px;padding:10px 12px;cursor:pointer;transition:box-shadow .15s}
+.scard:hover{box-shadow:0 2px 12px rgba(0,0,0,.14)}
+.sc-top{display:flex;justify-content:space-between;align-items:center}
+.sc-top b{color:var(--navy)}
+.tag{background:var(--grey);border-radius:10px;padding:1px 8px;font-size:11px}
+.sc-prod{font-weight:bold;margin:3px 0}
+.small{font-size:11px}
+.sc-eta{margin:4px 0}
+.daysb{color:#1f2d2b;border-radius:8px;padding:1px 7px;font-size:11px;font-weight:bold}
+.alertb{margin-top:6px;background:var(--red);color:#9c0006;font-weight:bold;border-radius:5px;padding:3px 6px;font-size:12px}
+.pend{margin-top:6px;font-size:11px;color:#5a4a1e;background:#fdf6e3;border-radius:5px;padding:3px 6px}
+.panel{background:#fff;border:1px solid #dbe3e2;border-left:5px solid var(--teal);border-radius:8px;padding:12px 14px;margin:10px 0}
+.ph{font-weight:bold;color:var(--navy);margin-bottom:8px}
+.kpis{display:flex;gap:22px;flex-wrap:wrap;margin-bottom:10px}
+.kpi{text-align:center}
+.kn{font-size:20px;font-weight:bold}
+.kl{font-size:11px;color:#666}
+.actions{display:flex;flex-direction:column;gap:2px}
+.actline{cursor:pointer;font-size:13px;padding:3px 6px;border-radius:4px}
+.actline:hover{background:var(--grey)}
+.docbox{border:1px solid #dbe3e2;border-radius:5px;padding:6px;max-height:130px;overflow:auto;margin-top:2px}
+.docrow{font-size:12px;padding:2px 0}
+.doclink{cursor:pointer;color:var(--teal)}
+.doclink:hover{text-decoration:underline}
+.scard.exp{grid-column:1/-1;cursor:default}
+.exgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:6px 14px;margin:8px 0}
+.exgrid>div{font-size:12px;color:var(--ink)}
+.exl{display:block;color:#8a8a8a;font-size:10px;text-transform:uppercase;letter-spacing:.3px}
+.exsec{font-size:12px;margin:6px 0;background:#f7faf9;border-radius:5px;padding:6px}
+.exsec .exl{margin-bottom:3px}
+.filterbar input,.filterbar select{padding:6px;border:1px solid #b9c6c4;border-radius:5px;font-size:13px}
+.filterbar #fq{flex:1;min-width:200px}
+.ov{position:fixed;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;z-index:99;padding:16px}
+.modal{background:#fff;border-radius:10px;padding:18px;max-width:680px;width:100%;max-height:90vh;overflow:auto}
+.modal h3{margin-top:0;color:var(--navy)}
+.edgrid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.edf{display:flex;flex-direction:column;font-size:12px;gap:2px;margin-top:6px}
+.edf span{color:#555;font-weight:bold}
+.modal textarea{width:100%;font-family:inherit;font-size:13px;padding:5px;border:1px solid #b9c6c4;border-radius:4px}
+@media(max-width:600px){.edgrid{grid-template-columns:1fr}}
+</style>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script>if(window.pdfjsLib)pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';</script>
+</head>
+<body>
+<header>
+  <h1>Herramienta de Comercio Exterior — Luminatec</h1>
+  <div class="actions">
+    <button onclick="exportData()">Exportar respaldo</button>
+    <button class="sec" onclick="document.getElementById('imp').click()">Importar respaldo</button>
+    <input type="file" id="imp" style="display:none" accept="application/json" onchange="importData(event)">
+  </div>
+</header>
+<div id="syncbar" class="muted" style="padding:6px 0 0;font-size:13px"></div>
+<nav id="nav"></nav>
+<main>
+  <section id="tab-inst" class="tab"></section>
+  <section id="tab-param" class="tab"></section>
+  <section id="tab-pe" class="tab"></section>
+  <section id="tab-ar" class="tab"></section>
+  <section id="tab-seg" class="tab"></section>
+  <section id="tab-resumen" class="tab"></section>
+  <section id="tab-maestro" class="tab"></section>
+</main>
+
+<script>
+// ---------- estado + persistencia ----------
+const LS="comex_luminatec_v1";
+const defaults={
+ params:{ar_tasa:0.03,ar_t1:180,ar_t2:3000,ar_t3:30000,ar_t4:150000,ar_iva:0.21,ar_ivar:0.105,ar_pIva:0.20,ar_pIvaR:0.10,ar_pGan:0.06,ar_arancel:10,
+         pe_igv:0.16,pe_ipm:0.02,pe_pIgvGen:0.035,pe_pIgv1:0.10,pe_pIgvU:0.05},
+ ar:{tc:1442,flete:0,seguro:0,arancel:10,agente:0,honor:0,terminal:0,otros:0,iibb:0,tasaOv:"",margenObj:0,items:[{sku:"",desc:"",ncm:"",qty:0,fob:0,der:0,ivaR:0.21,pvp:0}]},
+ pe:{tc:3.75,flete:0,seguro:0,isc:0,agente:0,almac:0,transp:0,otros:0,pIgv:0.035,margenObj:0,items:[{sku:"",desc:"",ncm:"",qty:0,fob:0,adv:0,pvp:0}]},
+ seg:[],
+ seeded:false,
+ seededPagos:false,
+ ivaMaster:{},derMaster:{},ncmMaster:{},descMaster:{}
+};
+let S=load();
+function load(){try{const d=JSON.parse(localStorage.getItem(LS));return d?deepMerge(structuredClone(defaults),d):structuredClone(defaults);}catch(e){return structuredClone(defaults);}}
+function deepMerge(a,b){for(const k in b){if(b[k]&&typeof b[k]==="object"&&!Array.isArray(b[k]))deepMerge(a[k]=a[k]||{},b[k]);else a[k]=b[k];}return a;}
+function save(){localStorage.setItem(LS,JSON.stringify(S));scheduleCloudPush();}
+const money=n=>isFinite(n)?n.toLocaleString('es-AR',{minimumFractionDigits:2,maximumFractionDigits:2}):"–";
+const pct=n=>isFinite(n)?(n*100).toLocaleString('es-AR',{minimumFractionDigits:1,maximumFractionDigits:1})+"%":"–";
+const num=v=>{const n=parseFloat(v);return isFinite(n)?n:0;};
+
+// ---------- navegación ----------
+const tabs=[["inst","Instrucciones"],["param","Parámetros"],["pe","Costeo Perú"],["ar","Costeo Argentina"],["seg","Seguimiento"],["maestro","Maestro"],["resumen","Resumen"]];
+const nav=document.getElementById("nav");
+tabs.forEach(([id,label])=>{const b=document.createElement("button");b.textContent=label;b.onclick=()=>show(id);b.id="nav-"+id;nav.appendChild(b);});
+function show(id){tabs.forEach(([t])=>{document.getElementById("tab-"+t).classList.toggle("active",t===id);document.getElementById("nav-"+t).classList.toggle("active",t===id);});}
+
+// ---------- Instrucciones ----------
+document.getElementById("tab-inst").innerHTML=`
+<h2>Instrucciones</h2>
+<div class="card">
+<p><b>Qué es:</b> herramienta única para costear la nacionalización de importaciones (Perú y Argentina) y dar seguimiento a los embarques. Reemplaza el trabajo operativo del área de COMEX.</p>
+<p><b>Cómo se usa:</b> completá los campos en <span style="background:var(--cream);padding:1px 5px">crema</span> (son editables). Los resultados se calculan solos. Para <b>carga masiva</b>, usá “Importar factura (Excel/CSV)” en cada calculadora: detecta las columnas de SKU, descripción, cantidad y precio unitario; o pegá las filas con “Pegar desde Excel”.</p>
+<p><b>Metodología (clave):</b> al <b>costo</b> del producto van derechos/ad valorem, tasa de estadística, arancel y gastos (despachante, flete local, terminal). El <b>IVA/IGV y las percepciones NO son costo</b>: son crédito fiscal recuperable, aunque sí desembolso de caja. Se muestran por separado (en gris). Los costos del embarque se prorratean entre los SKU según su participación en el FOB (PPP), igual que el costeo real.</p>
+<p><b>Datos y respaldo:</b> todo se guarda en este navegador automáticamente. Usá <b>“Exportar respaldo”</b> para guardar un archivo en OneDrive y <b>“Importar respaldo”</b> para restaurarlo o pasarlo a otra máquina.</p>
+<p><b>Validado:</b> la calculadora de Argentina se contrastó contra un costeo real de un embarque y reprodujo el mismo costo activado.</p>
+<div class="note">Aviso: las tasas cargadas son las vigentes verificadas a 2026-07. No reemplazan la liquidación oficial del despachante. En Argentina, confirmá tasa de estadística y percepciones antes de operaciones grandes.</div>
+</div>`;
+
+// ---------- Parámetros ----------
+function renderParam(){
+ const p=S.params;
+ const row=(k,label,isPct=true)=>`<div class="field"><label>${label}</label><input class="in" value="${isPct?(p[k]*100):p[k]}" onchange="setParam('${k}',this.value,${isPct})">${isPct?'<span class="muted">%</span>':'<span class="muted">USD</span>'}</div>`;
+ document.getElementById("tab-param").innerHTML=`
+ <h2>Parámetros — tasas e impuestos</h2>
+ <div class="note">Editá acá cuando cambie un impuesto y actualizá tu registro. Todas las calculadoras usan estos valores.</div>
+ <div class="grid">
+  <div class="card"><h3>Argentina (ARCA)</h3>
+   ${row('ar_tasa','Tasa de estadística')}
+   ${row('ar_t1','Tope tasa — base ≤ USD 10.000',false)}
+   ${row('ar_t2','Tope tasa — base 10.000–100.000',false)}
+   ${row('ar_t3','Tope tasa — base 100.000–1.000.000',false)}
+   ${row('ar_t4','Tope tasa — base > 1.000.000',false)}
+   ${row('ar_iva','IVA general')}
+   ${row('ar_ivar','IVA reducido')}
+   ${row('ar_pIva','Percepción IVA general')}
+   ${row('ar_pIvaR','Percepción IVA reducida')}
+   ${row('ar_pGan','Percepción Ganancias')}
+   ${row('ar_arancel','Arancel SIM (fijo)',false)}
+  </div>
+  <div class="card"><h3>Perú (SUNAT)</h3>
+   ${row('pe_igv','IGV')}
+   ${row('pe_ipm','IPM')}
+   ${row('pe_pIgvGen','Percepción IGV — general')}
+   ${row('pe_pIgv1','Percepción IGV — 1ra import./riesgo')}
+   ${row('pe_pIgvU','Percepción IGV — usados')}
+   <p class="muted">Derechos ad valorem (0/4/6/11%) y derechos de importación (por NCM) se cargan por ítem en cada calculadora.</p>
+  </div>
+ </div>`;
+}
+function setParam(k,v,isPct){S.params[k]=isPct?num(v)/100:num(v);save();renderAR();renderPE();}
+
+// ---------- Costeo genérico ----------
+function capAR(base){const p=S.params;return base<=10000?p.ar_t1:base<=100000?p.ar_t2:base<=1000000?p.ar_t3:p.ar_t4;}
+
+function computeAR(){
+ const d=S.ar,p=S.params;
+ const fobTot=d.items.reduce((s,i)=>s+num(i.qty)*num(i.fob),0);
+ const items=d.items.map(i=>{const fob=num(i.qty)*num(i.fob);const part=fobTot?fob/fobTot:0;const cif=fob+(num(d.flete)+num(d.seguro))*part;const der=cif*num(i.der);return{...i,fob,part,cif,der};});
+ const cifTot=items.reduce((s,i)=>s+i.cif,0);
+ const derTot=items.reduce((s,i)=>s+i.der,0);
+ const tasa=d.tasaOv!==""&&d.tasaOv!=null?num(d.tasaOv):Math.min(p.ar_tasa*cifTot,capAR(cifTot));
+ const arancel=num(d.arancel),gastos=num(d.agente)+num(d.honor)+num(d.terminal)+num(d.otros);
+ const costoNac=derTot+tasa+arancel+gastos;
+ const landed=cifTot+costoNac;
+ const baseImp=cifTot+derTot+tasa+arancel;
+ const perItem=items.map(i=>{const nac=i.der+(tasa+arancel+gastos)*i.part;const lt=i.cif+nac;const lu=num(i.qty)?lt/num(i.qty):0;const pvp=num(i.pvp);const mar=pvp>0?(pvp-lu)/pvp:null;const ivaR=(i.ivaR!=null&&i.ivaR!=="")?num(i.ivaR):p.ar_iva;const baseI=i.cif+i.der+(tasa+arancel)*i.part;return{...i,nac,lt,lu,luLoc:lu*num(d.tc),pvp,mar,ivaItem:ivaR*baseI,pIvaItem:(ivaR>=p.ar_iva?p.ar_pIva:p.ar_pIvaR)*baseI};});
+ const iva=perItem.reduce((s,x)=>s+x.ivaItem,0),pIva=perItem.reduce((s,x)=>s+x.pIvaItem,0),pGan=p.ar_pGan*baseImp,iibb=num(d.iibb);
+ const recup=iva+pIva+pGan+iibb;
+ const desemb=costoNac+recup;
+ const venta=perItem.reduce((s,x)=>s+x.pvp*num(x.qty),0);
+ return{fobTot,cifTot,derTot,tasa,arancel,gastos,costoNac,landed,iva,pIva,pGan,iibb,recup,desemb,perItem,venta,ganancia:venta-landed,margenTot:venta>0?(venta-landed)/venta:null,gastoPct:fobTot?costoNac/fobTot:0};
+}
+function computePE(){
+ const d=S.pe,p=S.params;
+ const fobTot=d.items.reduce((s,i)=>s+num(i.qty)*num(i.fob),0);
+ const items=d.items.map(i=>{const fob=num(i.qty)*num(i.fob);const part=fobTot?fob/fobTot:0;const cif=fob+(num(d.flete)+num(d.seguro))*part;const adv=cif*num(i.adv);return{...i,fob,part,cif,adv};});
+ const cifTot=items.reduce((s,i)=>s+i.cif,0);
+ const advTot=items.reduce((s,i)=>s+i.adv,0);
+ const isc=num(d.isc),gastos=num(d.agente)+num(d.almac)+num(d.transp)+num(d.otros);
+ const baseIgv=cifTot+advTot+isc;
+ const igv=p.pe_igv*baseIgv,ipm=p.pe_ipm*baseIgv;
+ const pIgv=num(d.pIgv)*(baseIgv+igv+ipm);
+ const costoNac=advTot+isc+gastos;
+ const landed=cifTot+costoNac;
+ const recup=igv+ipm+pIgv;
+ const desemb=costoNac+recup;
+ const perItem=items.map(i=>{const nac=i.adv+(isc+gastos)*i.part;const lt=i.cif+nac;const lu=num(i.qty)?lt/num(i.qty):0;const pvp=num(i.pvp);const mar=pvp>0?(pvp-lu)/pvp:null;return{...i,nac,lt,lu,luLoc:lu*num(d.tc),pvp,mar};});
+ const venta=perItem.reduce((s,x)=>s+x.pvp*num(x.qty),0);
+ return{fobTot,cifTot,advTot,isc,gastos,igv,ipm,pIgv,costoNac,landed,recup,desemb,perItem,venta,ganancia:venta-landed,margenTot:venta>0?(venta-landed)/venta:null,gastoPct:fobTot?costoNac/fobTot:0};
+}
+
+function itemsTable(country){
+ const d=S[country];const derKey=country==="ar"?"der":"adv";const derLbl=country==="ar"?"Derecho %":"Ad valorem %";const loc=country==="ar"?"ARS":"PEN";
+ let h=impBar(country)+`<table><thead><tr><th>SKU</th><th>Descripción</th><th>NCM</th><th>Cant.</th><th>FOB unit USD</th><th>${derLbl}</th>${country==='ar'?'<th>IVA %</th>':''}<th>FOB total</th><th>CIF</th><th>Landed unit USD</th><th>Landed unit ${loc}</th><th>PVP unit USD</th><th>PVP unit ${loc}</th><th>Margen %</th><th></th></tr></thead><tbody>`;
+ const R=country==="ar"?computeAR():computePE();
+ d.items.forEach((it,ix)=>{const pi=R.perItem[ix];
+  h+=`<tr>
+   <td><input class="in" style="min-width:120px" value="${it.sku||""}" onchange="setItem('${country}',${ix},'sku',this.value)"></td>
+   <td><input class="in" style="min-width:150px" value="${it.desc||""}" onchange="setItem('${country}',${ix},'desc',this.value)"></td>
+   <td><input class="in" style="width:100px" value="${it.ncm||""}" onchange="setItem('${country}',${ix},'ncm',this.value)"></td>
+   <td><input class="in" style="width:70px" value="${it.qty||0}" onchange="setItem('${country}',${ix},'qty',this.value)"></td>
+   <td><input class="in" style="width:90px" value="${it.fob||0}" onchange="setItem('${country}',${ix},'fob',this.value)"></td>
+   <td><input class="in" style="width:80px" value="${(it[derKey]*100)||0}" onchange="setItem('${country}',${ix},'${derKey}',this.value/100)"></td>
+   ${country==='ar'?`<td><input class="in" style="width:70px" value="${(it.ivaR!=null&&it.ivaR!=='')?it.ivaR*100:21}" onchange="setItem('ar',${ix},'ivaR',this.value/100)"></td>`:''}
+   <td class="right">${money(pi.fob)}</td><td class="right">${money(pi.cif)}</td><td class="right"><b>${money(pi.lu)}</b></td><td class="right">${money(pi.luLoc)}</td>
+   <td><input class="in" style="width:90px" value="${it.pvp||''}" onchange="setItem('${country}',${ix},'pvp',this.value)"></td>
+   <td class="right">${it.pvp?money(num(it.pvp)*num(d.tc)):'—'}</td>
+   <td class="right">${pi.mar==null?'—':pct(pi.mar)}</td>
+   <td><button class="mini sec" onclick="delItem('${country}',${ix})">✕</button></td></tr>`;});
+ h+=`</tbody></table><button class="mini" onclick="addItem('${country}')">+ Agregar ítem</button>`;
+ return h;
+}
+function setItem(c,ix,k,v){S[c].items[ix][k]=(k==='sku'||k==='desc'||k==='ncm')?v:num(v);
+ if(c==='ar'){const sk=(S[c].items[ix].sku||'').trim();if(sk){if(!S.ivaMaster)S.ivaMaster={};if(!S.derMaster)S.derMaster={};if(!S.ncmMaster)S.ncmMaster={};if(!S.descMaster)S.descMaster={};if(k==='ivaR')S.ivaMaster[sk]=num(v);if(k==='der'&&num(v)>0)S.derMaster[sk]=num(v);if(k==='ncm'&&String(v).trim())S.ncmMaster[sk]=String(v).trim();if(k==='desc'&&String(v).trim())S.descMaster[sk]=String(v).trim();}}
+ save();c==='ar'?renderAR():renderPE();}
+function addItem(c){S[c].items.push(c==='ar'?{sku:"",desc:"",ncm:"",qty:0,fob:0,der:0,ivaR:0.21,pvp:0}:{sku:"",desc:"",ncm:"",qty:0,fob:0,adv:0,pvp:0});save();c==='ar'?renderAR():renderPE();}
+function delItem(c,ix){S[c].items.splice(ix,1);if(!S[c].items.length)addItem(c);save();c==='ar'?renderAR():renderPE();}
+function setF(c,k,v){S[c][k]=(k==='tasaOv'&&v==="")?"":num(v);save();c==='ar'?renderAR():renderPE();}
+let costeoCtx=null;
+async function costearEmbarque(ix){
+ try{const r=S.seg[ix];const c=(r.pais==='Perú'||/^LUPE/i.test(r.id||''))?'pe':'ar';
+  S[c]=r.costeo?deepMerge(structuredClone(c==='ar'?defaults.ar:defaults.pe),r.costeo):structuredClone(c==='ar'?defaults.ar:defaults.pe);
+  costeoCtx={c,ix};save();renderAR();renderPE();show(c);
+  if(!r.costeo){
+   if(!fsGranted){setTimeout(()=>alert('Abrí el costeo de '+(r.id||'')+'. Para traer los ítems automáticamente, conectá la carpeta de documentos en Seguimiento. Si no, cargalos con "Importar factura" o a mano.'),150);}
+   else{const n=await autoFillFromFolder(ix,c);if(n){renderAR();renderPE();}else{setTimeout(()=>alert('Abrí el costeo de '+(r.id||'')+'. No encontré factura de PETDUR ni un Excel legible en su carpeta; cargá los ítems con "Importar factura", "Traer ítems de la carpeta" o a mano.'),150);}}
+  }
+ }catch(e){alert('Error al abrir el costeo: '+e.message);}}
+async function autoFillFromFolder(ix,c){const r=S.seg[ix];const dk=c==='ar'?'der':'adv';const dh=await findSub(r.id);if(!dh)return 0;
+ const prov=(r.prov||'').toLowerCase().replace(/[^a-z0-9]/g,'');
+ const esProveedor=n=>{const sa=n.toLowerCase().replace(/[^a-z0-9]/g,'');return sa.includes('petdur')||(prov&&prov.length>2&&sa.includes(prov));};
+ const score=n=>{n=n.toLowerCase();let s=0;if(/\bci\b|commercial|invoice|factura|proforma|\bpi\b/.test(n))s+=3;if(/fanttik|order|pedido/.test(n))s+=1;return s;};
+ let all=[];try{for await(const [n,h] of dh.entries()){if(h.kind==='file'&&/\.(xlsx?|pdf)$/i.test(n)&&!/^~\$/.test(n))all.push([n,h]);}}catch(e){return 0;}
+ const tryFiles=async list=>{for(const [n,h] of list){try{let best=[];
+   if(/\.pdf$/i.test(n)){const lines=await readPdfText(await h.getFile());best=detectItems(lines.map(l=>l.split(/\s{2,}/)),dk);}
+   else{if(typeof XLSX==='undefined')continue;const wb=XLSX.read(new Uint8Array(await (await h.getFile()).arrayBuffer()),{type:'array'});wb.SheetNames.forEach(sn=>{const it=detectItems(XLSX.utils.sheet_to_json(wb.Sheets[sn],{header:1,defval:''}),dk);if(it.length>best.length)best=it;});}
+   if(best.length){if(c==='ar')learnFillProd(best);S[c].items=best;save();setTimeout(()=>alert(best.length+' ítems traídos de "'+n+'".\nRevisá % de derecho (el IVA se autocompleta del maestro por SKU).'),80);return best.length;}
+  }catch(e){}}return 0;};
+ // 1) facturas de PETDUR / proveedor (Excel antes que PDF)
+ const prv=all.filter(f=>esProveedor(f[0])).sort((a,b)=>(/\.pdf$/i.test(a[0])?1:0)-(/\.pdf$/i.test(b[0])?1:0));
+ let n=await tryFiles(prv);if(n)return n;
+ // 2) fallback: cualquier Excel de la carpeta (excepto el propio costeo)
+ const xls=all.filter(f=>/\.xlsx?$/i.test(f[0])&&!esProveedor(f[0])&&!/coste|costo/i.test(f[0])).sort((a,b)=>score(b[0])-score(a[0]));
+ return await tryFiles(xls);}
+function traerDeCarpeta(){if(!costeoCtx)return;if(!fsGranted){alert('Primero conectá la carpeta de documentos en Seguimiento.');return;}autoFillFromFolder(costeoCtx.ix,costeoCtx.c).then(n=>{if(n){renderAR();renderPE();}else alert('No pude leer automáticamente una factura de PETDUR (Excel o PDF de texto) en la carpeta. Podés usar "Importar factura" o cargar los ítems a mano.');});}
+function guardarCosteo(){if(!costeoCtx)return;const c=costeoCtx.c;const R=c==='ar'?computeAR():computePE();const r=S.seg[costeoCtx.ix];if(!r){costeoCtx=null;return;}r.costeo=structuredClone(S[c]);r.costEst=Math.round(R.landed*100)/100;save();renderSeg();alert('Costeo guardado en '+(r.id||'el embarque')+'.\nCosto estimado actualizado a USD '+money(R.landed));}
+function desvincular(){costeoCtx=null;renderAR();renderPE();}
+function aplicarPVP(c){const R=c==='ar'?computeAR():computePE();const m=num(S[c].margenObj)/100;if(!(m>0&&m<1)){alert('Ingresá un margen objetivo entre 1 y 99%.');return;}S[c].items.forEach((it,ix)=>{it.pvp=Math.round((R.perItem[ix].lu/(1-m))*100)/100;});save();c==='ar'?renderAR():renderPE();}
+function printDoc(title,body){const w=window.open('','_blank');if(!w){alert('Habilitá las ventanas emergentes para generar el PDF.');return;}
+ w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>${title}</title><style>body{font-family:Arial,sans-serif;color:#1f2d2b;margin:24px;font-size:12px}h1{color:#14453f;font-size:18px;margin:0 0 2px}h2{color:#2c7a70;font-size:14px;border-bottom:1px solid #2c7a70;padding-bottom:3px;margin:16px 0 6px}table{border-collapse:collapse;width:100%;margin:6px 0}th,td{border:1px solid #bbb;padding:4px 6px;text-align:left}th{background:#2c7a70;color:#fff}.r{text-align:right}.meta{color:#666;font-size:11px}.grid2{display:grid;grid-template-columns:1fr 1fr;gap:2px 20px}.grid2>div{padding:2px 0;border-bottom:1px solid #eee}@media print{body{margin:6mm}}</style></head><body>${body}<div class="meta" style="margin-top:20px">Generado por la Herramienta COMEX Luminatec — ${new Date().toLocaleString('es-AR')}</div></body></html>`);
+ w.document.close();w.focus();setTimeout(()=>w.print(),350);}
+function printEmbarque(ix){const r=S.seg[ix];const dias=diasETA(r.eta);const row=(l,v)=>`<div><b>${l}:</b> ${v||'—'}</div>`;
+ const pg=(r.pagos||[]).length?`<h2>Pagos</h2><table><tr><th>Concepto</th><th class="r">Monto USD</th><th>Vencimiento</th><th>Estado</th></tr>${r.pagos.map(p=>`<tr><td>${p.concepto||''}</td><td class="r">${p.monto?money(num(p.monto)):''}</td><td>${fmtD(p.fecha)}</td><td>${p.pagado?'Pagado':'Pendiente'}</td></tr>`).join('')}</table>`:'';
+ let ch='';if(r.costeo){const c=(r.pais==='Perú'||/^LUPE/i.test(r.id||''))?'pe':'ar';const bak=S[c];S[c]=r.costeo;const R=c==='ar'?computeAR():computePE();
+  ch=`<h2>Costeo de nacionalización</h2><div class="grid2">${row('CIF total','USD '+money(R.cifTot))}${row(c==='ar'?'Derechos':'Ad valorem','USD '+money(c==='ar'?R.derTot:R.advTot))}${row('Costo nacionalización','USD '+money(R.costoNac))}${row('Costo landed total','USD '+money(R.landed))}${row('Desembolso en aduana','USD '+money(R.desemb))}${R.venta>0?row('Venta (PVP) / Margen','USD '+money(R.venta)+' / '+pct(R.margenTot)):''}</div><table><tr><th>SKU</th><th>Producto</th><th class="r">Cant</th><th class="r">Landed u</th><th class="r">PVP</th><th class="r">Margen</th></tr>${R.perItem.filter(i=>num(i.qty)).map(i=>`<tr><td>${i.sku||''}</td><td>${i.desc||''}</td><td class="r">${num(i.qty)}</td><td class="r">${money(i.lu)}</td><td class="r">${i.pvp?money(i.pvp):'—'}</td><td class="r">${i.mar==null?'—':pct(i.mar)}</td></tr>`).join('')}</table>`;S[c]=bak;}
+ const body=`<h1>${r.id||'Embarque'} — ${r.prod||''}</h1><div class="meta">${r.pais||''} · ${r.estado||''}</div><h2>Datos del embarque</h2><div class="grid2">${row('Proveedor',r.prov)}${row('Origen',r.origen)}${row('Modo',r.modo)}${row('Incoterm',r.inco)}${row('Fecha orden',fmtD(r.fOrden))}${row('ETD',fmtD(r.etd))}${row('ETA',fmtD(r.eta)+(dias!=null?' ('+dias+'d)':''))}${row('Oficialización',fmtD(r.fOfic))}${row('Liberación',fmtD(r.fLib))}${row('Despachante',r.despa)}${row('Costo estimado',r.costEst?'USD '+money(num(r.costEst)):'')}${row('Costo real',(r.costReal!==''&&r.costReal!=null)?'USD '+money(num(r.costReal)):'')}</div>${r.docs?`<h2>Tareas pendientes</h2><div>${r.docs}</div>`:''}${r.notas?`<h2>Notas</h2><div>${r.notas}</div>`:''}${pg}${ch}`;
+ printDoc(r.id||'Embarque',body);}
+function printCosteo(c){const R=c==='ar'?computeAR():computePE();const d=S[c];const pais=c==='ar'?'Argentina':'Perú';const row=(l,v)=>`<div><b>${l}:</b> ${v}</div>`;
+ const res=c==='ar'?`${row('CIF total','USD '+money(R.cifTot))}${row('Derechos','USD '+money(R.derTot))}${row('Tasa estadística','USD '+money(R.tasa))}${row('Arancel','USD '+money(R.arancel))}${row('Gastos','USD '+money(R.gastos))}${row('COSTO NACIONALIZACIÓN','USD '+money(R.costoNac))}${row('COSTO LANDED TOTAL','USD '+money(R.landed))}${row('Desembolso en aduana (caja)','USD '+money(R.desemb))}`:`${row('CIF total','USD '+money(R.cifTot))}${row('Ad valorem','USD '+money(R.advTot))}${row('ISC','USD '+money(R.isc))}${row('Gastos','USD '+money(R.gastos))}${row('COSTO NACIONALIZACIÓN','USD '+money(R.costoNac))}${row('COSTO LANDED TOTAL','USD '+money(R.landed))}${row('Desembolso en aduana (caja)','USD '+money(R.desemb))}`;
+ const derL=c==='ar'?'Der %':'Adv %';
+ const rows=R.perItem.filter(i=>num(i.qty)||num(i.fob)).map(i=>`<tr><td>${i.sku||''}</td><td>${i.desc||''}</td><td class="r">${num(i.qty)}</td><td class="r">${money(num(i.fob))}</td><td class="r">${((c==='ar'?i.der:i.adv)*100)||0}</td><td class="r">${money(i.cif)}</td><td class="r">${money(i.lu)}</td><td class="r">${i.pvp?money(i.pvp):'—'}</td><td class="r">${i.mar==null?'—':pct(i.mar)}</td></tr>`).join('');
+ const body=`<h1>Costeo de nacionalización — ${pais}</h1><div class="meta">TC ${money(num(d.tc))} · Flete USD ${money(num(d.flete))} · Seguro USD ${money(num(d.seguro))}</div><h2>Resultados</h2><div class="grid2">${res}${R.venta>0?row('Venta total (PVP)','USD '+money(R.venta))+row('Margen total',pct(R.margenTot)+' · USD '+money(R.ganancia)):''}</div><h2>Ítems</h2><table><tr><th>SKU</th><th>Producto</th><th class="r">Cant</th><th class="r">FOB u</th><th class="r">${derL}</th><th class="r">CIF</th><th class="r">Landed u</th><th class="r">PVP</th><th class="r">Margen</th></tr>${rows}</table>`;
+ printDoc('Costeo '+pais,body);}
+function costeoAOA(c){const R=c==='ar'?computeAR():computePE();const d=S[c];const pais=c==='ar'?'Argentina':'Perú';const a=[];
+ a.push(['Costeo de nacionalización — '+pais]);a.push(['TC',num(d.tc),'','Flete USD',num(d.flete),'Seguro USD',num(d.seguro)]);a.push([]);
+ a.push(['RESULTADOS (USD)']);
+ if(c==='ar'){a.push(['CIF total',R.cifTot]);a.push(['Derechos de importación',R.derTot]);a.push(['Tasa estadística',R.tasa]);a.push(['Arancel SIM',R.arancel]);a.push(['Gastos',R.gastos]);}
+ else{a.push(['CIF total (valor en aduana)',R.cifTot]);a.push(['Derechos ad valorem',R.advTot]);a.push(['ISC',R.isc]);a.push(['Gastos',R.gastos]);}
+ a.push(['COSTO DE NACIONALIZACIÓN',R.costoNac]);a.push(['COSTO LANDED TOTAL',R.landed]);a.push(['Desembolso en aduana (caja)',R.desemb]);
+ if(R.venta>0){a.push(['Venta total (PVP)',R.venta]);a.push(['Ganancia',R.ganancia]);a.push(['Margen total %',Math.round(R.margenTot*1000)/10]);}
+ a.push([]);a.push(['SKU','Descripción','Cantidad','FOB unit USD',c==='ar'?'Derecho %':'Ad valorem %','FOB total USD','CIF USD','Landed unit USD','PVP unit USD','Margen %']);
+ d.items.forEach((it,ix)=>{const pi=R.perItem[ix];if(!(num(it.qty)||num(it.fob)))return;a.push([it.sku||'',it.desc||'',num(it.qty),num(it.fob),(c==='ar'?num(it.der):num(it.adv))*100,pi.fob,pi.cif,pi.lu,num(it.pvp)||'',pi.mar==null?'':Math.round(pi.mar*1000)/10]);});
+ return {aoa:a,pais};}
+function exportCosteo(c){const o=costeoAOA(c);const fn='Costeo_'+o.pais+'_'+new Date().toISOString().slice(0,10);
+ if(typeof XLSX!=='undefined'){const ws=XLSX.utils.aoa_to_sheet(o.aoa);ws['!cols']=[{wch:18},{wch:26},{wch:9},{wch:12},{wch:11},{wch:13},{wch:12},{wch:14},{wch:12},{wch:9}];const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'Costeo');XLSX.writeFile(wb,fn+'.xlsx');}
+ else{const csv=o.aoa.map(r=>r.map(x=>`"${String(x==null?'':x).replace(/"/g,'""')}"`).join(',')).join('\n');dl(new Blob(['﻿'+csv],{type:'text/csv'}),fn+'.csv');alert('Sin conexión para generar Excel; se descargó en CSV (abre igual en Excel).');}}
+
+function renderAR(){
+ const d=S.ar,R=computeAR();
+ const F=(k,label,v)=>`<div class="field"><label>${label}</label><input class="in" value="${v}" onchange="setF('ar','${k}',this.value)"></div>`;
+ document.getElementById("tab-ar").innerHTML=`
+ <h2>Costeo de nacionalización — Argentina</h2>
+ ${costeoCtx&&costeoCtx.c==='ar'?`<div class="note" style="border-color:#c08a2e;background:#fdf6e3">🔗 Costeando embarque <b>${(S.seg[costeoCtx.ix]||{}).id||''}</b>. Está vacío hasta que cargues los ítems (a mano o con “Importar factura”); después tocá <b>Guardar en embarque</b> para volcar el costo al tracker. <button class="mini" onclick="traerDeCarpeta()">📥 Traer ítems de la carpeta</button> <button class="mini" onclick="guardarCosteo()">Guardar en embarque</button> <button class="mini sec" onclick="desvincular()">Desvincular</button></div>`:''}
+ <div class="grid">
+  <div class="card"><h3>Datos y gastos (USD)</h3>
+   ${F('tc','Tipo de cambio (ARS/USD)',d.tc)}
+   ${F('flete','Flete internacional',d.flete)}
+   ${F('seguro','Seguro',d.seguro)}
+   ${F('arancel','Arancel SIM',d.arancel)}
+   ${F('agente','Gastos agente de carga',d.agente)}
+   ${F('honor','Honorarios despachante',d.honor)}
+   ${F('terminal','Terminal / almacenaje',d.terminal)}
+   ${F('otros','Otros gastos',d.otros)}
+   ${F('iibb','IIBB percepción (USD)',d.iibb)}
+   <div class="field"><label>Tasa estad. real (opcional)</label><input class="in" value="${d.tasaOv}" placeholder="auto 3%" onchange="setF('ar','tasaOv',this.value)"></div>
+  </div>
+  <div class="card"><h3>Resultados (USD)</h3>
+   <div class="res"><span>FOB total</span><b>${money(R.fobTot)}</b></div>
+   <div class="res"><span>CIF total</span><b>${money(R.cifTot)}</b></div>
+   <div class="res"><span>Derechos de importación</span><b>${money(R.derTot)}</b></div>
+   <div class="res"><span>Tasa estadística ${d.tasaOv!==""?"(real)":"(auto 3% c/tope)"}</span><b>${money(R.tasa)}</b></div>
+   <div class="res"><span>Arancel SIM</span><b>${money(R.arancel)}</b></div>
+   <div class="res"><span>Gastos</span><b>${money(R.gastos)}</b></div>
+   <div class="res k"><span>COSTO DE NACIONALIZACIÓN (a inventario)</span><b>${money(R.costoNac)}</b></div>
+   <div class="res g"><span>COSTO LANDED TOTAL</span><b>${money(R.landed)}</b></div>
+   <div class="res mut"><span>IVA importación (crédito fiscal)</span><span>${money(R.iva)}</span></div>
+   <div class="res mut"><span>Percepción IVA (crédito)</span><span>${money(R.pIva)}</span></div>
+   <div class="res mut"><span>Percepción Ganancias 6% (crédito)</span><span>${money(R.pGan)}</span></div>
+   <div class="res mut"><span>IIBB percepción (crédito)</span><span>${money(R.iibb)}</span></div>
+   <div class="res"><span>DESEMBOLSO TOTAL EN ADUANA (caja)</span><b>${money(R.desemb)}</b></div>
+   <div class="res"><span>% gasto impositivo sobre FOB</span><b>${pct(R.gastoPct)}</b></div>
+   <div class="res"><span>Venta total (PVP)</span><b>${money(R.venta)}</b></div>
+   <div class="res g"><span>MARGEN TOTAL</span><b>${R.margenTot==null?'—':pct(R.margenTot)}${R.venta>0?' · USD '+money(R.ganancia):''}</b></div>
+  </div>
+ </div>
+ <div class="tools" style="margin-top:6px"><label style="font-size:13px">PVP · Margen objetivo</label><input class="in" style="width:70px" value="${d.margenObj||''}" onchange="setF('ar','margenObj',this.value)"><span class="muted">%</span><button class="mini" onclick="aplicarPVP('ar')">Aplicar PVP sugerido a todos</button><button class="mini sec" onclick="printCosteo('ar')">🖨 PDF del costeo</button><button class="mini sec" onclick="exportCosteo('ar')">⬇ Excel</button></div>
+ <h3>Ítems</h3>${itemsTable('ar')}
+ <div class="note">Tasa estadística: en blanco estima 3% s/CIF con tope; cargá la cifra real de la liquidación para exactitud. Importes en gris = crédito fiscal recuperable (no van al costo, sí al desembolso).</div>`;
+}
+function renderPE(){
+ const d=S.pe,R=computePE();
+ const F=(k,label,v)=>`<div class="field"><label>${label}</label><input class="in" value="${v}" onchange="setF('pe','${k}',this.value)"></div>`;
+ document.getElementById("tab-pe").innerHTML=`
+ <h2>Costeo de nacionalización — Perú</h2>
+ ${costeoCtx&&costeoCtx.c==='pe'?`<div class="note" style="border-color:#c08a2e;background:#fdf6e3">🔗 Costeando embarque <b>${(S.seg[costeoCtx.ix]||{}).id||''}</b>. Está vacío hasta que cargues los ítems (a mano o con “Importar factura”); después tocá <b>Guardar en embarque</b> para volcar el costo al tracker. <button class="mini" onclick="traerDeCarpeta()">📥 Traer ítems de la carpeta</button> <button class="mini" onclick="guardarCosteo()">Guardar en embarque</button> <button class="mini sec" onclick="desvincular()">Desvincular</button></div>`:''}
+ <div class="grid">
+  <div class="card"><h3>Datos y gastos (USD)</h3>
+   ${F('tc','Tipo de cambio (PEN/USD)',d.tc)}
+   ${F('flete','Flete internacional',d.flete)}
+   ${F('seguro','Seguro',d.seguro)}
+   ${F('isc','ISC (selectivo, si aplica)',d.isc)}
+   ${F('agente','Gastos agente de aduana',d.agente)}
+   ${F('almac','Almacenaje',d.almac)}
+   ${F('transp','Transporte local',d.transp)}
+   ${F('otros','Otros gastos',d.otros)}
+   <div class="field"><label>Percepción IGV %</label><input class="in" value="${d.pIgv*100}" onchange="setF('pe','pIgv',this.value/100)"></div>
+  </div>
+  <div class="card"><h3>Resultados (USD)</h3>
+   <div class="res"><span>FOB total</span><b>${money(R.fobTot)}</b></div>
+   <div class="res"><span>CIF total (valor en aduana)</span><b>${money(R.cifTot)}</b></div>
+   <div class="res"><span>Derechos ad valorem</span><b>${money(R.advTot)}</b></div>
+   <div class="res"><span>ISC</span><b>${money(R.isc)}</b></div>
+   <div class="res mut"><span>IGV 16% (crédito fiscal)</span><span>${money(R.igv)}</span></div>
+   <div class="res mut"><span>IPM 2% (crédito fiscal)</span><span>${money(R.ipm)}</span></div>
+   <div class="res mut"><span>Percepción IGV (crédito)</span><span>${money(R.pIgv)}</span></div>
+   <div class="res"><span>Gastos</span><b>${money(R.gastos)}</b></div>
+   <div class="res k"><span>COSTO DE NACIONALIZACIÓN (a inventario)</span><b>${money(R.costoNac)}</b></div>
+   <div class="res g"><span>COSTO LANDED TOTAL</span><b>${money(R.landed)}</b></div>
+   <div class="res"><span>DESEMBOLSO TOTAL EN ADUANA (caja)</span><b>${money(R.desemb)}</b></div>
+   <div class="res"><span>% gasto impositivo sobre FOB</span><b>${pct(R.gastoPct)}</b></div>
+   <div class="res"><span>Venta total (PVP)</span><b>${money(R.venta)}</b></div>
+   <div class="res g"><span>MARGEN TOTAL</span><b>${R.margenTot==null?'—':pct(R.margenTot)}${R.venta>0?' · USD '+money(R.ganancia):''}</b></div>
+  </div>
+ </div>
+ <div class="tools" style="margin-top:6px"><label style="font-size:13px">PVP · Margen objetivo</label><input class="in" style="width:70px" value="${d.margenObj||''}" onchange="setF('pe','margenObj',this.value)"><span class="muted">%</span><button class="mini" onclick="aplicarPVP('pe')">Aplicar PVP sugerido a todos</button><button class="mini sec" onclick="printCosteo('pe')">🖨 PDF del costeo</button><button class="mini sec" onclick="exportCosteo('pe')">⬇ Excel</button></div>
+ <h3>Ítems</h3>${itemsTable('pe')}
+ <div class="note">IGV, IPM y percepción IGV son crédito fiscal recuperable: no van al costo, sí al desembolso.</div>`;
+}
+
+// ---------- Seguimiento ----------
+const ESTADOS=["Orden de compra","En producción","Embarcado","En tránsito","Arribado","En despacho","Nacionalizado","Entregado"];
+const DOC_CAT=[["orden","Orden / Reserva",0],["proforma","Factura proforma",1],["fcprov","Factura comercial del proveedor",2],["swift","Swift / comprobante de pago a proveedor",2],["packing","Packing list",2],["bl","BL / HBL",2],["fflete","Factura de flete / agente de carga",3],["aviso","Aviso de llegada",4],["despacho","Despacho / DI (provisorio)",5],["fterminal","Factura de terminal",5],["gastos","Gastos de agente / honorarios",5],["dioficial","DI oficializada",6],["boletas","Boletas de pago de impuestos",6],["liquid","Liquidación final del despachante",6]];
+function estadoIdx(e){return ESTADOS.indexOf(e);}
+function docsExpected(r){const i=estadoIdx(r.estado);return i<0?[]:DOC_CAT.filter(d=>d[2]<=i);}
+function docsPend(r){const ch=r.docsChk||{};return docsExpected(r).filter(d=>!ch[d[0]]);}
+const PAISES=["Perú","Argentina"];const MODOS=["Marítimo","Aéreo","Terrestre","Plaza"];
+const SEGCOLS=[["id","Embarque ID"],["pais","País"],["prov","Proveedor"],["prod","Producto/Marca"],["origen","Origen"],["modo","Modo"],["inco","Incoterm"],["estado","Estado"],["fOrden","Fecha orden"],["etd","ETD"],["eta","ETA"],["fOfic","Fecha ofic."],["fLib","Fecha liber."],["docs","Docs pendientes"],["despa","Despachante"],["notas","Notas"],["costEst","Costo est. USD"],["costReal","Costo real USD"]];
+function diasETA(eta){if(!eta)return null;const d=Math.round((new Date(eta)-new Date().setHours(0,0,0,0))/86400000);return d;}
+function alerta(r){if(r.estado==="Entregado")return "";const dias=diasETA(r.eta);const pend=docsPend(r);if(dias!=null&&dias<0&&r.estado!=="Entregado"&&r.estado!=="Nacionalizado")return "Arribo vencido sin cerrar";if(pend.length&&dias!=null&&dias<=7&&dias>=0)return "Faltan docs y arribo próximo";if(r.docs&&dias!=null&&dias<=7&&dias>=0)return "Tareas pendientes y arribo próximo";return "";}
+function pagosInfo(r){const ps=r.pagos||[];const pend=ps.filter(p=>!p.pagado);let next=null;pend.forEach(p=>{if(p.fecha){const d=diasETA(p.fecha);if(next==null||(d!=null&&d<next.d))next={p,d};}});return {tot:ps.length,pagados:ps.filter(p=>p.pagado).length,pend:pend.length,saldo:pend.reduce((s,p)=>s+num(p.monto),0),next};}
+function estadoColor(e){return {"Orden de compra":"#8a9a97","En producción":"#c08a2e","Embarcado":"#2c7a70","En tránsito":"#2f6f8f","Arribado":"#3a6ea5","En despacho":"#c0662e","Nacionalizado":"#3a8f57","Entregado":"#2e7d32","Sin estado":"#8a9a97"}[e]||"#8a9a97";}
+function panelHTML(){
+ const rows=S.seg.map((r,ix)=>({r,ix,d:diasETA(r.eta),a:alerta(r)}));
+ const active=rows.filter(x=>x.r.estado!=="Entregado");
+ const soon=active.filter(x=>x.d!=null&&x.d<=7).sort((a,b)=>a.d-b.d);
+ const alerts=rows.filter(x=>x.a);
+ const val=active.reduce((s,x)=>s+num(x.r.costEst),0);
+ const duePagos=[];S.seg.forEach((r,ix)=>{(r.pagos||[]).forEach(p=>{if(!p.pagado&&p.fecha){const d=diasETA(p.fecha);if(d!=null&&d<=7)duePagos.push({ix,d,p,r});}});});duePagos.sort((a,b)=>a.d-b.d);
+ const seen={};const actions=[];
+ soon.forEach(x=>{seen[x.ix]=1;actions.push({ix:x.ix,txt:`<b>${x.r.id||'(sin ID)'}</b> · ${x.r.prod||''} — ${x.d<0?'arribo vencido hace '+(-x.d)+'d':(x.d===0?'arriba hoy':'arriba en '+x.d+'d')}`,urg:x.d});});
+ alerts.forEach(x=>{if(!seen[x.ix]){seen[x.ix]=1;actions.push({ix:x.ix,txt:`<b>${x.r.id||''}</b> · ${x.a}`,urg:-50});}});
+ duePagos.forEach(x=>{actions.push({ix:x.ix,txt:`<b>${x.r.id||''}</b> · pago ${x.p.concepto||''} USD ${money(num(x.p.monto))} — ${x.d<0?'vencido hace '+(-x.d)+'d':(x.d===0?'vence hoy':'vence en '+x.d+'d')}`,urg:x.d-0.1});});
+ S.seg.forEach((r,ix)=>{if(r.estado==="Entregado")return;const p=docsPend(r);const dd=diasETA(r.eta);if(p.length&&((dd!=null&&dd<=7)||r.estado==="Arribado"||r.estado==="En despacho")&&!seen[ix]){seen[ix]=1;actions.push({ix,txt:`<b>${r.id||''}</b> · faltan docs: ${p.slice(0,3).map(x=>x[1]).join(', ')}${p.length>3?'…':''}`,urg:-20});}});
+ actions.sort((a,b)=>a.urg-b.urg);
+ const kpi=(n,l,c)=>`<div class="kpi"><div class="kn" style="color:${c||'var(--navy)'}">${n}</div><div class="kl">${l}</div></div>`;
+ const list=actions.length?actions.map(a=>`<div class="actline" onclick="openEdit(${a.ix})">▸ ${a.txt}</div>`).join(''):`<div class="muted">Nada urgente por ahora 👍</div>`;
+ return `<div class="panel"><div class="ph">📌 Acción requerida hoy</div>
+  <div class="kpis">${kpi(active.length,'Embarques activos')}${kpi(soon.length,'Arriban ≤ 7 días',soon.length?'#c0662e':'var(--navy)')}${kpi(duePagos.length,'Pagos por vencer',duePagos.length?'#c0662e':'var(--navy)')}${kpi(alerts.length,'Alertas',alerts.length?'#9c0006':'var(--navy)')}${kpi('USD '+money(val),'Provisorio en curso')}</div>
+  <div class="actions">${list}</div></div>`;
+}
+let segFilter={q:'',pais:'',estado:''};
+function setFilter(k,v){segFilter[k]=v;renderBoard();}
+function clearFilter(){segFilter={q:'',pais:'',estado:''};renderSeg();}
+function matchFilter(r){const q=segFilter.q.trim().toLowerCase();
+ if(segFilter.pais&&r.pais!==segFilter.pais)return false;
+ if(segFilter.estado&&(r.estado||'Sin estado')!==segFilter.estado)return false;
+ if(q&&![r.id,r.prod,r.prov,r.origen,r.despa,r.notas,r.docs].join(' ').toLowerCase().includes(q))return false;
+ return true;}
+function renderSeg(){
+ const opt2=(arr,v)=>arr.map(o=>`<option ${o===v?'selected':''}>${o}</option>`).join('');
+ const fbar=FSA?(fsGranted?`<span class="muted small">📁 Carpeta conectada${dirHandle?': '+dirHandle.name:''} — la subcarpeta de cada operación se crea sola.</span> <button class="mini" onclick="autoMarkAllDocs()">🔎 Detectar en toda la carpeta</button> <button class="mini sec" onclick="connectFolder()">Reconectar</button>`:`<button class="sec" onclick="connectFolder()">📁 Conectar carpeta de documentos</button> <span class="muted small">para crear y ver la carpeta de cada operación</span>`):`<span class="muted small">📁 Carpeta automática de documentos: disponible en Edge/Chrome de escritorio.</span>`;
+ const tools=`<h2>Seguimiento de embarques</h2>${panelHTML()}
+ <div class="tools"><button onclick="newSeg()">+ Nuevo embarque</button><button class="sec" onclick="document.getElementById('imp-seg').click()">⇪ Importar (CSV)</button><input type="file" id="imp-seg" style="display:none" accept=".csv" onchange="importSegFile(event)"><button class="sec" onclick="segTpl()">Plantilla</button><button class="sec" onclick="exportCSV()">Exportar CSV</button><button class="sec" onclick="exportSegXlsx()">⬇ Excel</button></div>
+ <div class="tools">${fbar}</div>
+ <div class="tools filterbar"><input id="fq" placeholder="Buscar: ID, producto, proveedor, notas…" value="${segFilter.q.replace(/"/g,'&quot;')}" oninput="setFilter('q',this.value)"><select onchange="setFilter('pais',this.value)"><option value="">País (todos)</option>${opt2(PAISES,segFilter.pais)}</select><select onchange="setFilter('estado',this.value)"><option value="">Estado (todos)</option>${opt2(ESTADOS,segFilter.estado)}</select><button class="sec" onclick="clearFilter()">Limpiar</button></div>`;
+ document.getElementById("tab-seg").innerHTML=tools+`<div id="segBoard"></div><p class="muted">Tocá una tarjeta para ver o editar. El arribo y las alertas se colorean solos. Recordá “Exportar respaldo” cada tanto.</p>`;
+ renderBoard();
+}
+function renderBoard(){const el=document.getElementById('segBoard');if(!el)return;
+ if(!S.seg.length){el.innerHTML=`<p class="muted">No hay embarques todavía. Usá “+ Nuevo embarque” o “Importar (CSV)”.</p>`;return;}
+ const idxs=S.seg.map((r,ix)=>ix).filter(ix=>matchFilter(S.seg[ix]));
+ if(!idxs.length){el.innerHTML=`<p class="muted">Ningún embarque coincide con el filtro.</p>`;return;}
+ const groups={};idxs.forEach(ix=>{const e=S.seg[ix].estado||"Sin estado";(groups[e]=groups[e]||[]).push(ix);});
+ let body="";ESTADOS.concat(["Sin estado"]).forEach(e=>{if(!groups[e])return;body+=`<div class="segh" style="border-color:${estadoColor(e)}">${e} <span class="muted">· ${groups[e].length}</span></div><div class="cards">`;groups[e].forEach(ix=>body+=card(ix));body+=`</div>`;});
+ el.innerHTML=body;}
+let segExpanded=null;
+function toggleExpand(ix){segExpanded=(segExpanded===ix)?null:ix;renderBoard();}
+function fmtD(d){return d?d.split('-').reverse().join('/'):'—';}
+function card(ix){const r=S.seg[ix];const dias=diasETA(r.eta);const al=alerta(r);const pend=docsPend(r);
+ const dcol=dias==null?"#eee":dias<0?"var(--red)":dias<=7?"var(--amber)":"var(--green)";
+ const daysb=dias!=null?` <span class="daysb" style="background:${dcol}">${dias}d</span>`:'';
+ const desv=(num(r.costEst)&&r.costReal!==""&&r.costReal!=null)?pct((num(r.costReal)-num(r.costEst))/num(r.costEst)):"";
+ const col=estadoColor(r.estado||'');
+ if(segExpanded===ix){
+  const g=(l,v)=>`<div><span class="exl">${l}</span>${v||'—'}</div>`;
+  const pg=(r.pagos||[]).map(p=>`${p.pagado?'✅':'⬜'} ${p.concepto||''} ${p.monto?'USD '+money(num(p.monto)):''} ${p.fecha?'· vence '+fmtD(p.fecha):''}`).join('<br>');
+  return `<div class="scard exp" style="border-left:5px solid ${col}">
+   <div class="sc-top" onclick="toggleExpand(${ix})" style="cursor:pointer"><b>${r.id||'(sin ID)'}</b> <span class="tag">${r.pais||''}</span> <span class="muted small">▲ cerrar</span></div>
+   <div class="sc-prod">${r.prod||''}</div>
+   <div class="exgrid">
+    ${g('Proveedor',r.prov)}${g('Origen',r.origen)}${g('Modo',r.modo)}${g('Incoterm',r.inco)}
+    ${g('Estado',r.estado)}${g('Fecha orden',fmtD(r.fOrden))}${g('ETD',fmtD(r.etd))}${g('ETA',fmtD(r.eta)+daysb)}
+    ${g('Oficialización',fmtD(r.fOfic))}${g('Liberación',fmtD(r.fLib))}${g('Despachante',r.despa)}
+    ${g('Provisorio',r.costEst?'USD '+money(num(r.costEst)):'')}${g('Costo real',(r.costReal!==''&&r.costReal!=null)?'USD '+money(num(r.costReal))+(desv?' · desvío '+desv:''):'')}
+   </div>
+   ${docsExpected(r).length?`<div class="exsec"><span class="exl">Documentos · etapa ${r.estado||'—'}${pend.length?` · faltan ${pend.length}`:' · al día ✅'}</span>${docsExpected(r).map(d=>{const s=(r.docsChk||{})[d[0]];return (s===true?'✅':s==='na'?'➖':'⬜')+' '+d[1]+(s==='na'?' (no aplica)':'');}).join('<br>')}</div>`:''}
+   ${r.docs?`<div class="exsec"><span class="exl">Tareas / notas de docs</span>${r.docs}</div>`:''}
+   ${r.notas?`<div class="exsec"><span class="exl">Notas</span>${r.notas}</div>`:''}
+   ${(r.pagos&&r.pagos.length)?`<div class="exsec"><span class="exl">Pagos (saldo USD ${money(pagosInfo(r).saldo)})</span>${pg}</div>`:''}
+   ${al?`<div class="alertb">⚠ ${al}</div>`:''}
+   <div class="tools" style="margin-top:8px"><button class="mini" onclick="costearEmbarque(${ix})">💲 Costear</button><button class="mini" onclick="openEdit(${ix})">✎ Editar</button><button class="mini sec" onclick="printEmbarque(${ix})">🖨 PDF</button><button class="mini sec" onclick="toggleExpand(${ix})">Cerrar</button></div>
+  </div>`;
+ }
+ return `<div class="scard" style="border-left:5px solid ${col}" onclick="toggleExpand(${ix})">
+  <div class="sc-top"><b>${r.id||'(sin ID)'}</b><span class="tag">${r.pais||''}</span></div>
+  <div class="sc-prod">${r.prod||''}</div>
+  <div class="muted small">${[r.prov,r.origen,r.modo].filter(Boolean).join(' · ')}</div>
+  <div class="sc-eta">ETA <b>${fmtD(r.eta)}</b>${daysb}</div>
+  ${r.despa?`<div class="muted small">👤 ${r.despa}</div>`:''}
+  ${r.costEst?`<div class="muted small">Provisorio USD ${money(num(r.costEst))}${desv?' · desvío '+desv:''}</div>`:''}
+  ${(r.pagos&&r.pagos.length)?`<div class="muted small">💲 Pagos ${pagosInfo(r).pagados}/${pagosInfo(r).tot}${pagosInfo(r).saldo?` · saldo USD ${money(pagosInfo(r).saldo)}`:''}</div>`:''}
+  ${pend.length?`<div class="pend">📋 Faltan ${pend.length}: ${pend.slice(0,2).map(d=>d[1]).join(', ')}${pend.length>2?'…':''}</div>`:''}
+  ${r.docs?`<div class="pend" style="opacity:.75">📝 ${r.docs.length>80?r.docs.slice(0,80)+'…':r.docs}</div>`:''}
+  ${al?`<div class="alertb">⚠ ${al}</div>`:''}
+ </div>`;
+}
+function newSeg(){S.seg.unshift({id:"",pais:"",prov:"",prod:"",origen:"",modo:"",inco:"",estado:"",fOrden:"",etd:"",eta:"",fOfic:"",fLib:"",docs:"",despa:"",notas:"",costEst:"",costReal:"",pagos:[]});save();renderSeg();openEdit(0);}
+function openEdit(ix){const r=S.seg[ix];
+ const esc=s=>String(s==null?'':s).replace(/"/g,'&quot;');
+ const opts=(arr,v)=>`<option value=""></option>`+arr.map(o=>`<option ${o===v?'selected':''}>${o}</option>`).join('');
+ const F=(l,el)=>`<label class="edf"><span>${l}</span>${el}</label>`;
+ const t=k=>`<input id="ed_${k}" value="${esc(r[k])}">`;
+ const dd=k=>`<input id="ed_${k}" type="date" value="${r[k]||''}">`;
+ const ta=k=>`<textarea id="ed_${k}" rows="2">${r[k]||''}</textarea>`;
+ const html=`<div class="ov" onclick="if(event.target===this)closeM()"><div class="modal">
+  <h3>Embarque ${esc(r.id)||'nuevo'}</h3>
+  <div class="edgrid">
+   ${F('Embarque ID',t('id'))}${F('País',`<select id="ed_pais">${opts(PAISES,r.pais)}</select>`)}
+   ${F('Proveedor',t('prov'))}${F('Producto/Marca',t('prod'))}
+   ${F('Origen',t('origen'))}${F('Modo',`<select id="ed_modo">${opts(MODOS,r.modo)}</select>`)}
+   ${F('Incoterm',t('inco'))}${F('Estado',`<select id="ed_estado" onchange="S.seg[${ix}].estado=this.value;renderDocChk(${ix})">${opts(ESTADOS,r.estado)}</select>`)}
+   ${F('Fecha orden',dd('fOrden'))}${F('ETD',dd('etd'))}
+   ${F('ETA',dd('eta'))}${F('Fecha ofic.',dd('fOfic'))}
+   ${F('Fecha liberación',dd('fLib'))}${F('Despachante',t('despa'))}
+   ${F('Costo est. USD',t('costEst'))}${F('Costo real USD',t('costReal'))}
+  </div>
+  ${F('Docs pendientes',ta('docs'))}${F('Notas',ta('notas'))}
+  <div class="edf" style="margin-top:8px"><span>Pagos <span class="muted" style="font-weight:normal">(se guardan al instante)</span></span><div id="pagobox" class="docbox"></div></div>
+  <div class="edf" style="margin-top:8px"><span>Checklist de documentos (por etapa)</span><div id="docchk" class="docbox"></div></div>
+  <div class="edf" style="margin-top:8px"><span>Documentos de la operación</span><div id="docbox" class="docbox"></div></div>
+  <div class="tools" style="justify-content:space-between;margin-top:12px"><button class="sec" onclick="delSegM(${ix})">Eliminar</button><span><button class="sec" onclick="closeM()">Cerrar</button> <button onclick="saveEdit(${ix})">Guardar</button></span></div>
+ </div></div>`;
+ const w=document.createElement('div');w.id='editModal';w.innerHTML=html;document.body.appendChild(w);renderPagos(ix);refreshDocs(r.id);renderDocChk(ix);}
+function renderPagos(ix){const box=document.getElementById('pagobox');if(!box)return;const ps=S.seg[ix].pagos||[];
+ let h=`<table style="margin:0"><thead><tr><th>Concepto</th><th>Monto USD</th><th>Vencimiento</th><th>Pagado</th><th></th></tr></thead><tbody>`;
+ ps.forEach((p,j)=>{h+=`<tr><td><input class="in" value="${(p.concepto||'').replace(/"/g,'&quot;')}" onchange="setPago(${ix},${j},'concepto',this.value)"></td><td><input class="in" style="width:90px" value="${p.monto||''}" onchange="setPago(${ix},${j},'monto',this.value)"></td><td><input type="date" class="in" value="${p.fecha||''}" onchange="setPago(${ix},${j},'fecha',this.value)"></td><td style="text-align:center"><input type="checkbox" ${p.pagado?'checked':''} onchange="setPago(${ix},${j},'pagado',this.checked)"></td><td><button class="mini sec" onclick="delPago(${ix},${j})">✕</button></td></tr>`;});
+ h+=`</tbody></table><button class="mini" onclick="addPago(${ix})">+ Agregar pago</button>`;box.innerHTML=h;}
+function setPago(ix,j,k,v){S.seg[ix].pagos[j][k]=v;save();if(k==='pagado')renderPagos(ix);}
+function addPago(ix){(S.seg[ix].pagos=S.seg[ix].pagos||[]).push({concepto:'',monto:'',fecha:'',pagado:false});save();renderPagos(ix);}
+function delPago(ix,j){S.seg[ix].pagos.splice(j,1);save();renderPagos(ix);}
+function renderDocChk(ix){const box=document.getElementById('docchk');if(!box)return;const r=S.seg[ix];const i=estadoIdx(r.estado);const ch=r.docsChk||{};
+ if(i<0){box.innerHTML='<span class="muted small">Elegí un Estado para ver qué documentos corresponden a la etapa.</span>';return;}
+ let h='';const stages=[...new Set(DOC_CAT.map(d=>d[2]))].filter(s=>s<=i);
+ stages.forEach(s=>{h+=`<div class="muted small" style="margin-top:6px;font-weight:600">${ESTADOS[s]}</div>`;DOC_CAT.filter(d=>d[2]===s).forEach(d=>{const st=ch[d[0]];const lbl=st==='na'?`<span style="opacity:.55"><s>${d[1]}</s> · no aplica</span>`:(st===true?d[1]:`<b style='color:#c0662e'>•</b> ${d[1]}`);const na=st==='na'?`<a onclick="setDocNA(${ix},'${d[0]}',false)" style="cursor:pointer;font-size:11px;color:#2c7a70">volver</a>`:`<a onclick="setDocNA(${ix},'${d[0]}',true)" style="cursor:pointer;font-size:11px;color:#8a9a97">no aplica</a>`;h+=`<div class="docrow" style="display:flex;gap:7px;align-items:center"><input type="checkbox" ${st===true?'checked':''} ${st==='na'?'disabled':''} onchange="setDocChk(${ix},'${d[0]}',this.checked)"><span style="flex:1">${lbl}</span>${na}</div>`;});});
+ const pend=docsPend(r);
+ h+=`<div class="muted small" style="margin-top:8px">${pend.length?('⏳ Pendientes de esta etapa: '+pend.length):'✅ Al día para la etapa actual'}</div>`;
+ if(FSA&&fsGranted&&r.id)h+=`<button class="mini sec" style="margin-top:6px" onclick="autoMarkDocs(${ix})">🔎 Detectar en carpeta</button>`;
+ box.innerHTML=h;}
+function setDocChk(ix,key,val){const r=S.seg[ix];r.docsChk=r.docsChk||{};if(val)r.docsChk[key]=true;else delete r.docsChk[key];save();renderDocChk(ix);}
+function setDocNA(ix,key,val){const r=S.seg[ix];r.docsChk=r.docsChk||{};if(val)r.docsChk[key]='na';else delete r.docsChk[key];save();renderDocChk(ix);}
+function guessDocKey(fn){fn=fn.toLowerCase();
+ if(/pack.?list|packing|[-_ ]pl[-_ .]|[-_ ]pl$/.test(fn))return 'packing';
+ if(/^bl[-_ .]|hbl|b\/l|bill.?of.?lading|[-_ ]bl[-_ .]|[-_ ]bl$|draft.*bl|bl.*draft|trb\d/.test(fn))return 'bl';
+ if(/swift|comprobante.*pago|payment/.test(fn))return 'swift';
+ if(/aviso|llegada|arrival|cmi\d/.test(fn))return 'aviso';
+ if(/provi|despacho|declarac|[-_ ]di[-_ ]/.test(fn))return 'despacho';
+ if(/terminal|[-_ ]t4[-_ .]|tef/.test(fn))return 'fterminal';
+ if(/boleta|[-_ ]vep\b/.test(fn))return 'boletas';
+ if(/liquidac|hoja.*costo|liq[-_ ]/.test(fn))return 'liquid';
+ if(/flete|freight|forwarder|from[-_ ]trice|trice[-_ ]llc/.test(fn))return 'fflete';
+ if(/proforma|^pi[-_ ]|[-_ ]pi[-_ ]/.test(fn))return 'proforma';
+ if(/factura|invoice|commercial.?invoice|[-_ ]ci[-_ ]|ci_|[-_ ]inv[-_ ]|ataf|101_a|[-_ ]a\d{3}/.test(fn))return 'fcprov';
+ if(/orden|order|reserva|rsv|orderstatus/.test(fn))return 'orden';
+ return null;}
+async function autoMarkDocs(ix){const r=S.seg[ix];if(!fsGranted||!r.id){alert('Conectá la carpeta y guardá el ID primero.');return;}const dh=await ensureFolder(r.id,false);if(!dh){alert('No encontré la carpeta de '+r.id);return;}let files=[];try{for await(const [n,hh] of dh.entries()){if(hh.kind==='file')files.push(n);}}catch(e){}r.docsChk=r.docsChk||{};let cnt=0;files.forEach(f=>{const k=guessDocKey(f);if(k&&!r.docsChk[k]){r.docsChk[k]=true;cnt++;}});save();renderDocChk(ix);alert(cnt?('Marqué '+cnt+' documento(s) detectado(s) por nombre de archivo. Revisá y ajustá lo que falte.'):'No detecté documentos nuevos por nombre. Marcá a mano los que tengas.');}
+async function autoMarkAllDocs(){if(!FSA||!fsGranted){alert('Conectá primero la carpeta de documentos.');return;}
+ let touched=0,marked=0,nofolder=[],detail=[];
+ for(let ix=0;ix<S.seg.length;ix++){const r=S.seg[ix];if(!r.id)continue;
+  let dh=null;try{dh=await ensureFolder(r.id,false);}catch(e){}
+  if(!dh){nofolder.push(r.id);continue;}
+  let files=[];try{for await(const [n,hh] of dh.entries()){if(hh.kind==='file')files.push(n);}}catch(e){continue;}
+  r.docsChk=r.docsChk||{};let c=0;files.forEach(f=>{const k=guessDocKey(f);if(k&&!r.docsChk[k]){r.docsChk[k]=true;c++;}});
+  if(c){marked+=c;touched++;detail.push(r.id+': +'+c);}}
+ save();renderSeg();
+ alert('Detección completa.\n'+marked+' documento(s) marcados en '+touched+' embarque(s).'+(detail.length?'\n\n'+detail.join('\n'):'')+(nofolder.length?'\n\nSin carpeta aún: '+nofolder.join(', '):''));}
+function closeM(){const m=document.getElementById('editModal');if(m)m.remove();}
+function saveEdit(ix){['id','pais','prov','prod','origen','modo','inco','estado','fOrden','etd','eta','fOfic','fLib','despa','costEst','costReal','docs','notas'].forEach(k=>{const el=document.getElementById('ed_'+k);if(el)S.seg[ix][k]=el.value;});save();if(fsGranted&&S.seg[ix].id)ensureFolder(S.seg[ix].id,true);closeM();renderSeg();}
+function delSegM(ix){if(confirm('¿Eliminar este embarque?')){S.seg.splice(ix,1);save();closeM();renderSeg();}}
+function importSegFile(e){const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=()=>importSegRows(parseCSV(r.result));r.readAsText(f);e.target.value='';}
+function importSegRows(rows){if(!rows||rows.length<2){alert('CSV vacío o sin filas de datos.');return;}
+ const hdr=rows[0].map(h=>String(h).trim().toLowerCase());const lookup={};
+ SEGCOLS.forEach(([k,l])=>{lookup[k.toLowerCase()]=k;lookup[l.toLowerCase()]=k;});
+ const cmap=hdr.map(h=>lookup[h]||null);const added=[];
+ for(let r=1;r<rows.length;r++){const row=rows[r];if(row.every(c=>String(c).trim()===''))continue;
+  const o={id:"",pais:"",prov:"",prod:"",origen:"",modo:"",inco:"",estado:"",fOrden:"",etd:"",eta:"",fOfic:"",fLib:"",docs:"",despa:"",notas:"",costEst:"",costReal:"",pagos:[]};
+  row.forEach((v,ci)=>{if(cmap[ci])o[cmap[ci]]=String(v).trim();});added.push(o);}
+ if(!added.length){alert('No se encontraron filas para importar.');return;}
+ S.seg=added.concat(S.seg);save();renderSeg();
+ setTimeout(()=>alert(added.length+' embarques agregados al seguimiento.'),50);}
+function segTpl(){const heads=SEGCOLS.map(c=>'"'+c[1]+'"').join(',');const a=document.createElement('a');a.href=URL.createObjectURL(new Blob(['﻿'+heads+'\n'],{type:'text/csv'}));a.download='plantilla_embarques.csv';a.click();}
+function delSeg(ix){if(confirm("¿Eliminar este embarque?")){S.seg.splice(ix,1);save();renderSeg();}}
+
+// ---------- export / import ----------
+function exportData(){const blob=new Blob([JSON.stringify(S,null,2)],{type:"application/json"});dl(blob,"respaldo_comex_"+new Date().toISOString().slice(0,10)+".json");}
+function importData(e){const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=()=>{try{S=deepMerge(structuredClone(defaults),JSON.parse(r.result));save();renderAll();alert("Respaldo importado.");}catch(x){alert("Archivo inválido.");}};r.readAsText(f);}
+function exportCSV(){const head=SEGCOLS.map(c=>c[1]).concat(["Desvío %","Días p/ETA","Alerta"]);
+ const rows=S.seg.map(r=>{const dias=diasETA(r.eta);const desv=(num(r.costEst)&&r.costReal!=="")?((num(r.costReal)-num(r.costEst))/num(r.costEst)*100).toFixed(1)+"%":"";
+  return SEGCOLS.map(c=>`"${(r[c[0]]??"").toString().replace(/"/g,'""')}"`).concat([desv,dias??"",`"${alerta(r)}"`]).join(",");});
+ dl(new Blob(["﻿"+[head.join(","),...rows].join("\n")],{type:"text/csv"}),"embarques_comex.csv");}
+function exportSegXlsx(){const heads=SEGCOLS.map(c=>c[1]).concat(['Desvío %','Días p/ETA','Alerta','Saldo pend. USD']);
+ const rows=S.seg.map(r=>{const dias=diasETA(r.eta);const desv=(num(r.costEst)&&r.costReal!==""&&r.costReal!=null)?Math.round((num(r.costReal)-num(r.costEst))/num(r.costEst)*1000)/10:'';const saldo=(r.pagos||[]).filter(p=>!p.pagado).reduce((a,p)=>a+num(p.monto),0);return SEGCOLS.map(c=>r[c[0]]==null?'':r[c[0]]).concat([desv,dias==null?'':dias,alerta(r),saldo||'']);});
+ const aoa=[heads,...rows];
+ if(typeof XLSX!=='undefined'){const ws=XLSX.utils.aoa_to_sheet(aoa);const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'Embarques');XLSX.writeFile(wb,'Seguimiento_COMEX_'+new Date().toISOString().slice(0,10)+'.xlsx');}else{exportCSV();}}
+function dl(blob,name){const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download=name;a.click();}
+
+// ---------- carga masiva desde factura ----------
+function impBar(c){return `<div class="tools">
+ <button class="mini" onclick="document.getElementById('imp-${c}').click()">⇪ Importar factura (Excel/CSV/PDF)</button>
+ <input type="file" id="imp-${c}" style="display:none" accept=".xlsx,.xls,.csv,.pdf" onchange="importFile('${c}',event)">
+ <button class="mini sec" onclick="showPaste('${c}')">Pegar desde Excel</button>
+ <button class="mini sec" onclick="tplItems('${c}')">Plantilla</button></div>`;}
+function pnum(v){if(typeof v==='number')return v;if(v==null)return NaN;let s=String(v).replace(/[^0-9.,-]/g,'');if(!s)return NaN;const hasC=s.includes(','),hasD=s.includes('.');if(hasC&&hasD){if(s.lastIndexOf(',')>s.lastIndexOf('.'))s=s.replace(/\./g,'').replace(',','.');else s=s.replace(/,/g,'');}else if(hasC){s=s.replace(/\./g,'').replace(',','.');}return parseFloat(s);}
+function parseCSV(txt){const raw=txt.split(/\r?\n/).filter(l=>l.trim()!=='');if(!raw.length)return [];
+ const first=raw[0];const delim=first.indexOf('\t')>-1?'\t':((first.split(';').length>first.split(',').length)?';':',');
+ return raw.map(line=>{const out=[];let cur='',q=false;for(let i=0;i<line.length;i++){const ch=line[i];
+   if(q){if(ch==='"'){if(line[i+1]==='"'){cur+='"';i++;}else q=false;}else cur+=ch;}
+   else{if(ch==='"')q=true;else if(ch===delim){out.push(cur);cur='';}else cur+=ch;}}
+  out.push(cur);return out.map(x=>x.trim());});}
+function importFile(c,e){const f=e.target.files[0];if(!f)return;const n=f.name.toLowerCase();
+ if(n.endsWith('.xlsx')||n.endsWith('.xls')){
+   if(typeof XLSX==='undefined'){alert('Para leer Excel hace falta conexión a internet la primera vez que abrís la app. Sin conexión: exportá la factura a CSV o usá "Pegar desde Excel".');e.target.value='';return;}
+   const r=new FileReader();r.onload=()=>{try{const wb=XLSX.read(new Uint8Array(r.result),{type:'array'});const dk=c==='ar'?'der':'adv';let best=[];wb.SheetNames.forEach(sn=>{const rows=XLSX.utils.sheet_to_json(wb.Sheets[sn],{header:1,defval:''});const it=detectItems(rows,dk);if(it.length>best.length)best=it;});if(!best.length){alert('No pude detectar columnas de Cantidad y Precio unitario en ninguna hoja del Excel. Usá "Plantilla" o "Pegar desde Excel".');return;}applyItems(c,best);}catch(x){alert('No pude leer el Excel: '+x.message);}};r.readAsArrayBuffer(f);
+ }else if(n.endsWith('.pdf')){processPdf(c,f);}
+ else{const r=new FileReader();r.onload=()=>loadRows(c,parseCSV(r.result));r.readAsText(f);}
+ e.target.value='';}
+function detectItems(rows,dk){
+ if(!rows||!rows.length)return [];
+ const skuPat=/^\s*L(?!UMI|UPE|UCL)[A-Za-z]*\d{2,}/i;
+ const ncol=rows.reduce((m,r)=>Math.max(m,r?r.length:0),0);
+ // ---- Camino 1: anclado en código L (SKU), cantidad/precio por cantidad×precio=total ----
+ let skucol=-1,shits=0;for(let ci=0;ci<ncol;ci++){let h=0;rows.forEach(r=>{if(r&&skuPat.test(String((r[ci]!=null?r[ci]:'')).trim()))h++;});if(h>shits){shits=h;skucol=ci;}}
+ if(skucol>=0&&shits>=2){
+   const data=rows.filter(r=>r&&skuPat.test(String((r[skucol]!=null?r[skucol]:'')).trim()));
+   const col=ci=>data.map(r=>pnum(ci<r.length?r[ci]:''));
+   const isCode=ci=>{let n=0,t=0;data.forEach(r=>{const v=String(ci<r.length&&r[ci]!=null?r[ci]:'').trim();if(v){n++;if(skuPat.test(v)||/[A-Za-z]/.test(v))t++;}});return n&&t/n>0.5;};
+   const numcols=[];for(let ci=0;ci<ncol;ci++){if(ci!==skucol&&!isCode(ci)&&col(ci).some(v=>isFinite(v)&&v>0))numcols.push(ci);}
+   let best=null;
+   for(const qi of numcols){const qv=col(qi);for(const fi of numcols){if(fi===qi)continue;const fv=col(fi);for(const ti of numcols){if(ti===qi||ti===fi)continue;const tv=col(ti);let ok=0,tot=0;for(let k=0;k<data.length;k++){const a=qv[k],b=fv[k],c=tv[k];if(isFinite(a)&&isFinite(b)&&isFinite(c)&&c>0){tot++;if(Math.abs(a*b-c)<=Math.max(0.5,c*0.02))ok++;}}if(tot>=2&&ok>=tot*0.8){const qn=qv.filter(v=>isFinite(v));const intr=qn.filter(v=>Math.abs(v-Math.round(v))<1e-6).length/Math.max(1,qn.length);const sc=(ok/tot)+intr-fi*0.05-(qi+ti)*0.002;if(!best||sc>best.sc)best={sc,qi,fi,ti};}}}}
+   if(best){
+     const txt=ci=>{let n=0,t=0;data.forEach(r=>{const v=String(ci<r.length&&r[ci]!=null?r[ci]:'').trim();if(v){n++;if(/[A-Za-z]/.test(v)&&!skuPat.test(v)&&!/^(LUMI|LUPE|LUCL)/i.test(v)&&(/\s/.test(v)||(v.match(/[A-Za-z]/g)||[]).length>=3))t++;}});return n?t/n:0;};
+     let desccol=-1,dd=1e9;for(let ci=0;ci<ncol;ci++){if(ci===skucol||ci===best.qi||ci===best.fi||ci===best.ti)continue;if(txt(ci)>0.5&&Math.abs(ci-skucol)<dd){dd=Math.abs(ci-skucol);desccol=ci;}}
+     let ivacol=-1;for(let ci=0;ci<ncol;ci++){if([skucol,best.qi,best.fi,best.ti].includes(ci))continue;const vs=col(ci).filter(v=>isFinite(v));if(vs.length>=2&&vs.filter(v=>[0.21,0.105,0.10,0.27].some(x=>Math.abs(v-x)<0.001)).length>=vs.length*0.6){ivacol=ci;break;}}
+     let ncmcol=-1;for(let rr=0;rr<Math.min(rows.length,8)&&ncmcol<0;rr++){(rows[rr]||[]).forEach((cell,ci)=>{if(ncmcol<0&&/ncm|posici|partida|hs ?code/i.test(String(cell)))ncmcol=ci;});}
+     const items=[];for(const r of data){const q=pnum(r[best.qi]),fb=pnum(r[best.fi]);if(!isFinite(q)||!isFinite(fb)||(q===0&&fb===0))continue;const it={sku:String(r[skucol]||'').trim(),desc:desccol>=0?String(r[desccol]||'').trim():'',qty:q,fob:fb,ncm:ncmcol>=0?String(r[ncmcol]||'').trim():''};it[dk]=0;if(ivacol>=0){let iv=pnum(r[ivacol]);if(isFinite(iv)&&iv>0){if(iv>1)iv/=100;it.ivaR=iv;}}items.push(it);}
+     if(items.length)return items;
+   }
+ }
+ // ---- Camino 2: por encabezado (facturas tipo CI, planillas simples) ----
+ const pat={sku:/sku|c[oó]d|code|art[ií]c|model|part|\bref|solic/i,desc:/descrip|detalle|product|goods|name|nombre|art[ií]culo/i,qty:/cant|qty|quantit|unidad|pcs|pzas|q.?ty/i,fob:/fob|precio|price|unit|p\.?u|valor|cost/i,der:/derecho|advalor|ad ?valor|arancel|duty/i,ncm:/ncm|posici|partida|hs ?code/i,iva:/^\s*iva/i};
+ let hdr=-1,map={};
+ for(let r=0;r<Math.min(rows.length,25);r++){const row=(rows[r]||[]).map(x=>String(x));const m={};row.forEach((cell,ci)=>{for(const k in pat){if(m[k]==null&&pat[k].test(cell))m[k]=ci;}});if(m.qty!=null&&m.fob!=null&&(m.sku!=null||m.desc!=null)){hdr=r;map=m;break;}}
+ const build=(dataRows,mp)=>{const items=[];for(const row of dataRows){const q=pnum(row[mp.qty]),fb=pnum(row[mp.fob]);if(!isFinite(q)||!isFinite(fb)||(q===0&&fb===0))continue;let d=mp.der!=null?pnum(row[mp.der]):0;if(!isFinite(d))d=0;if(d>1)d/=100;const it={sku:mp.sku!=null?String(row[mp.sku]||'').trim():'',desc:mp.desc!=null?String(row[mp.desc]||'').trim():'',qty:q,fob:fb,ncm:mp.ncm!=null?String(row[mp.ncm]||'').trim():''};it[dk]=d;if(mp.iva!=null){let iv=pnum(row[mp.iva]);if(isFinite(iv)&&iv>0){if(iv>1)iv/=100;it.ivaR=iv;}}items.push(it);}return items;};
+ if(hdr>=0)return build(rows.slice(hdr+1),map);
+ return build(rows,{sku:0,desc:1,qty:2,fob:3,der:4});
+}
+function learnFillProd(items){if(!S.ivaMaster)S.ivaMaster={};if(!S.derMaster)S.derMaster={};if(!S.ncmMaster)S.ncmMaster={};if(!S.descMaster)S.descMaster={};
+ items.forEach(it=>{const k=(it.sku||'').trim();if(!k)return;
+  const iv=num(it.ivaR);if(it.ivaR!=null&&it.ivaR!==''&&iv>0)S.ivaMaster[k]=iv;else if(S.ivaMaster[k]!=null)it.ivaR=S.ivaMaster[k];
+  const dv=num(it.der);if(dv>0)S.derMaster[k]=dv;else if(S.derMaster[k]!=null)it.der=S.derMaster[k];
+  const nc=(it.ncm==null?'':String(it.ncm)).trim();if(nc)S.ncmMaster[k]=nc;else if(S.ncmMaster[k]!=null)it.ncm=S.ncmMaster[k];
+  const ds=(it.desc||'').trim();if(ds)S.descMaster[k]=ds;else if(S.descMaster[k])it.desc=S.descMaster[k];});
+ save();}
+function applyItems(c,items){
+ if(c==='ar')learnFillProd(items);
+ const rep=confirm(items.length+' ítems detectados.\n\nAceptar = REEMPLAZAR la tabla actual.\nCancelar = AGREGAR al final.');
+ S[c].items = rep ? items : S[c].items.filter(i=>i.sku||i.qty||i.fob).concat(items);
+ save();c==='ar'?renderAR():renderPE();
+ setTimeout(()=>alert(items.length+' ítems cargados. Revisá el % de derecho/ad valorem por ítem (no viene en la factura).'),50);
+}
+function loadRows(c,rows){const dk=c==='ar'?'der':'adv';const items=detectItems(rows,dk);if(!items.length){alert('No pude detectar las columnas de Cantidad y Precio unitario. Descargá la "Plantilla" y pegá los datos con ese formato.');return;}applyItems(c,items);}
+async function readPdfText(blob){if(typeof pdfjsLib==='undefined')throw new Error('El lector de PDF no cargó (requiere internet la primera vez que abrís la app).');const buf=await blob.arrayBuffer();const pdf=await pdfjsLib.getDocument({data:buf}).promise;const lines=[];for(let p=1;p<=pdf.numPages;p++){const page=await pdf.getPage(p);const tc=await page.getTextContent();const byY={};tc.items.forEach(it=>{if(!it.str||!it.str.trim())return;const y=Math.round(it.transform[5]);(byY[y]=byY[y]||[]).push([it.transform[4],it.str]);});Object.keys(byY).map(Number).sort((a,b)=>b-a).forEach(y=>{lines.push(byY[y].sort((a,b)=>a[0]-b[0]).map(x=>x[1]).join('  '));});}return lines;}
+async function processPdf(c,blob){let lines;try{lines=await readPdfText(blob);}catch(e){alert(e.message);return;}const dk=c==='ar'?'der':'adv';const rows=lines.map(l=>l.split(/\s{2,}/).map(x=>x.trim()));const items=detectItems(rows,dk);if(items.length){applyItems(c,items);}else{showPaste(c,lines.join('\n'));setTimeout(()=>alert('No pude estructurar el PDF automáticamente. Te dejo el texto extraído para que lo revises y pegues (columnas: SKU, Descripción, Cantidad, FOB unitario).'),120);}}
+function showPaste(c,prefill){const ov=document.createElement('div');ov.style="position:fixed;inset:0;background:rgba(0,0,0,.4);display:flex;align-items:center;justify-content:center;z-index:99";
+ ov.innerHTML=`<div style="background:#fff;padding:16px;border-radius:8px;max-width:560px;width:90%">
+  <h3>Pegar filas de la factura</h3>
+  <p class="muted">Copiá las filas desde el Excel de la factura y pegalas acá. Columnas en orden: SKU, Descripción, Cantidad, FOB unitario, Derecho % (opcional). Podés incluir el encabezado.</p>
+  <textarea id="pasteBox" style="width:100%;height:160px">${prefill?String(prefill).replace(/&/g,'&amp;').replace(/</g,'&lt;'):''}</textarea>
+  <div class="tools" style="justify-content:flex-end"><button class="sec" id="pcancel">Cancelar</button><button id="pok">Cargar</button></div></div>`;
+ document.body.appendChild(ov);
+ ov.querySelector('#pcancel').onclick=()=>ov.remove();
+ ov.querySelector('#pok').onclick=()=>{const t=ov.querySelector('#pasteBox').value;ov.remove();if(t.trim())loadRows(c,parseCSV(t));};
+}
+function tplItems(c){const lbl=c==='ar'?'Derecho %':'Ad valorem %';const txt="SKU,Descripción,Cantidad,FOB unitario USD,"+lbl+"\nEJEMPLO-01,Producto de ejemplo,100,12.50,18\n";
+ const a=document.createElement('a');a.href=URL.createObjectURL(new Blob(['﻿'+txt],{type:'text/csv'}));a.download='plantilla_items_'+c+'.csv';a.click();}
+
+const SEED=[];
+function seedOps(){if(!S.seedIds)S.seedIds=S.seeded?S.seg.map(x=>x.id).filter(Boolean):[];const have=new Set(S.seg.map(x=>x.id));const known=new Set(S.seedIds);let changed=false;SEED.forEach(o=>{if(!have.has(o.id)&&!known.has(o.id)){S.seg.push(Object.assign({id:"",pais:"",prov:"",prod:"",origen:"",modo:"",inco:"",estado:"",fOrden:"",etd:"",eta:"",fOfic:"",fLib:"",docs:"",despa:"",notas:"",costEst:"",costReal:"",pagos:[]},o));changed=true;}if(!known.has(o.id)){S.seedIds.push(o.id);known.add(o.id);changed=true;}});if(!S.seeded){S.seeded=true;changed=true;}if(changed)save();}
+// ---------- carpeta de documentos (File System Access API) ----------
+const FSA=(typeof window!=='undefined')&&('showDirectoryPicker' in window);
+let dirHandle=null, fsGranted=false;
+function idbDo(mode,fn){return new Promise((res,rej)=>{const o=indexedDB.open('comexfs',1);o.onupgradeneeded=()=>o.result.createObjectStore('kv');o.onsuccess=()=>{const db=o.result,tx=db.transaction('kv',mode),st=tx.objectStore('kv'),rq=fn(st);tx.oncomplete=()=>res(rq&&rq.result);tx.onerror=()=>rej(tx.error);};o.onerror=()=>rej(o.error);});}
+const idbSet=(k,v)=>idbDo('readwrite',st=>st.put(v,k));
+const idbGet=k=>idbDo('readonly',st=>st.get(k));
+async function restoreFolder(){if(!FSA)return;try{const h=await idbGet('dir');if(h){dirHandle=h;const p=await h.queryPermission({mode:'readwrite'});fsGranted=(p==='granted');}}catch(e){}renderSeg();}
+async function connectFolder(){if(!FSA)return;try{if(dirHandle){const p=await dirHandle.requestPermission({mode:'readwrite'});if(p==='granted'){fsGranted=true;renderSeg();return;}}dirHandle=await window.showDirectoryPicker({mode:'readwrite'});fsGranted=true;await idbSet('dir',dirHandle);renderSeg();}catch(e){}}
+async function findSub(id){if(!fsGranted||!dirHandle||!id)return null;
+ try{return await dirHandle.getDirectoryHandle(id,{create:false});}catch(e){}
+ try{for await(const [n,h] of dirHandle.entries()){if(h.kind==='directory'&&n!==id&&n.startsWith(id)&&!/\d/.test(n.charAt(id.length)))return h;}}catch(e){}
+ return null;}
+async function ensureFolder(id,create){if(!fsGranted||!dirHandle||!id)return null;const f=await findSub(id);if(f)return f;if(create){try{return await dirHandle.getDirectoryHandle(id,{create:true});}catch(e){return null;}}return null;}
+async function refreshDocs(id){const box=document.getElementById('docbox');if(!box)return;
+ if(!FSA){box.innerHTML='<span class="muted small">Requiere Edge/Chrome de escritorio.</span>';return;}
+ if(!fsGranted){box.innerHTML='<span class="muted small">Conectá la carpeta de documentos (botón arriba en Seguimiento) para ver/crear la carpeta de este embarque.</span>';return;}
+ if(!id){box.innerHTML='<span class="muted small">Poné un Embarque ID y Guardá: su carpeta se crea sola.</span>';return;}
+ const dh=await ensureFolder(id,false);
+ if(!dh){box.innerHTML=`<span class="muted small">Sin carpeta aún.</span> <button class="mini" onclick="makeDocs('${id}')">Crear carpeta ${id}</button>`;return;}
+ let files=[];try{for await(const [n,h] of dh.entries()){if(h.kind==='file')files.push(n);}}catch(e){}
+ files.sort();
+ box.innerHTML=`<div class="muted small">📁 ${id} · ${files.length} archivo(s)</div>`+files.map(n=>`<div class="docrow"><span class="doclink" onclick="openDoc('${id}',this.textContent.slice(2))">📄 ${n}</span></div>`).join('')+`<button class="mini" onclick="document.getElementById('docup').click()">+ Agregar archivo</button><input type="file" id="docup" multiple style="display:none" onchange="addDocs('${id}',event)">`;
+}
+async function makeDocs(id){await ensureFolder(id,true);refreshDocs(id);}
+async function addDocs(id,e){const dh=await ensureFolder(id,true);if(dh){for(const f of e.target.files){try{const fh=await dh.getFileHandle(f.name,{create:true});const w=await fh.createWritable();await w.write(f);await w.close();}catch(x){}}}e.target.value='';refreshDocs(id);}
+async function openDoc(id,name){const dh=await ensureFolder(id,false);if(!dh)return;try{const fh=await dh.getFileHandle(name);const f=await fh.getFile();window.open(URL.createObjectURL(f),'_blank');}catch(x){}}
+function renderResumen(){const seg=S.seg;const activos=seg.filter(r=>r.estado!=="Entregado");
+ const byPais=p=>activos.filter(r=>r.pais===p);const val=arr=>arr.reduce((s,r)=>s+num(r.costEst),0);
+ const saldoPend=seg.reduce((s,r)=>s+(r.pagos||[]).filter(p=>!p.pagado).reduce((a,p)=>a+num(p.monto),0),0);
+ let due30=0;seg.forEach(r=>{(r.pagos||[]).forEach(p=>{if(!p.pagado&&p.fecha){const d=diasETA(p.fecha);if(d!=null&&d<=30)due30+=num(p.monto);}});const de=diasETA(r.eta);if(de!=null&&de<=30&&r.estado!=='Nacionalizado'&&r.estado!=='Entregado')due30+=num(r.costEst);});
+ const kpi=(n,l,c)=>`<div class="kpi"><div class="kn" style="color:${c||'var(--navy)'}">${n}</div><div class="kl">${l}</div></div>`;
+ const estCount=ESTADOS.map(e=>[e,seg.filter(r=>r.estado===e).length]).filter(x=>x[1]);
+ const estTable=`<table><tr><th>Estado</th><th class="right">Embarques</th></tr>${estCount.map(x=>`<tr><td>${x[0]}</td><td class="right">${x[1]}</td></tr>`).join('')||'<tr><td colspan="2" class="muted">Sin datos</td></tr>'}</table>`;
+ const paisRows=['Argentina','Perú'].map(p=>`<tr><td>${p}</td><td class="right">${byPais(p).length}</td><td class="right">${money(val(byPais(p)))}</td></tr>`).join('');
+ document.getElementById('tab-resumen').innerHTML=`<h2>Resumen ejecutivo</h2>
+  <div class="panel"><div class="kpis">${kpi(activos.length,'Embarques activos')}${kpi('USD '+money(val(activos)),'Valor provisorio en curso')}${kpi('USD '+money(saldoPend),'Saldo a pagar pendiente')}${kpi('USD '+money(due30),'Desembolsos ≤ 30 días',due30?'#c0662e':'var(--navy)')}</div></div>
+  <div class="grid">
+   <div class="card"><h3>Por país (activos)</h3><table><tr><th>País</th><th class="right">Embarques</th><th class="right">Provisorio USD</th></tr>${paisRows}</table></div>
+   <div class="card"><h3>Por estado</h3>${estTable}</div>
+  </div>
+  <p class="muted">"Provisorio en curso" usa el costo estimado de cada embarque activo. "Desembolsos ≤ 30 días" suma los pagos con vencimiento próximo más el provisorio de nacionalización de los embarques que arriban dentro de 30 días (aún no nacionalizados).</p>`;}
+function maestroSKUs(){const s=new Set([...Object.keys(S.ivaMaster||{}),...Object.keys(S.derMaster||{}),...Object.keys(S.ncmMaster||{}),...Object.keys(S.descMaster||{})]);return [...s].sort();}
+function renderMaestro(){const rows=maestroSKUs().map(sk=>`<tr><td><b>${sk}</b></td><td><input class="in" style="width:220px" value="${((S.descMaster||{})[sk]||'').replace(/"/g,'&quot;')}" onchange="setMaestro('${sk}','desc',this.value)"></td><td><input class="in" style="width:120px" value="${(S.ncmMaster||{})[sk]||''}" onchange="setMaestro('${sk}','ncm',this.value)"></td><td><input class="in" style="width:80px" value="${(S.derMaster||{})[sk]!=null?(S.derMaster[sk]*100):''}" onchange="setMaestro('${sk}','der',this.value)"></td><td><input class="in" style="width:80px" value="${(S.ivaMaster||{})[sk]!=null?(S.ivaMaster[sk]*100):''}" onchange="setMaestro('${sk}','iva',this.value)"></td><td><button class="mini sec" onclick="delMaestro('${sk}')">✕</button></td></tr>`).join('');
+ document.getElementById('tab-maestro').innerHTML=`<h2>Maestro de productos (Argentina)</h2>
+  <div class="tools"><button onclick="addMaestro()">+ Agregar SKU</button><button class="sec" onclick="document.getElementById('imp-mae').click()">⇪ Importar (Excel/CSV)</button><input type="file" id="imp-mae" style="display:none" accept=".xlsx,.xls,.csv" onchange="importMaestro(event)"><button class="sec" onclick="exportMaestro()">⬇ Exportar</button></div>
+  <table><thead><tr><th>SKU</th><th>Descripción</th><th>NCM / Partida</th><th>Derecho %</th><th>IVA %</th><th></th></tr></thead><tbody>${rows||'<tr><td colspan="6" class="muted">Sin productos aún. Se completa solo al importar facturas, o cargá acá / importá una lista.</td></tr>'}</tbody></table>
+  <div class="note">Estos valores se autocompletan en el costeo de Argentina cuando el SKU coincide, y se aprenden al importar facturas o editar un ítem. El IVA y la NCM casi no cambian; el derecho puede variar por reclasificación. Se guarda en el respaldo (Exportar/Importar).</div>`;}
+function setMaestro(sk,f,v){if(f==='desc'){S.descMaster=S.descMaster||{};if(String(v).trim())S.descMaster[sk]=String(v).trim();else delete S.descMaster[sk];save();return;}if(f==='ncm'){S.ncmMaster=S.ncmMaster||{};if(String(v).trim())S.ncmMaster[sk]=String(v).trim();else delete S.ncmMaster[sk];}else if(f==='der'){S.derMaster=S.derMaster||{};const n=num(v)/100;if(n>0)S.derMaster[sk]=n;else delete S.derMaster[sk];}else{S.ivaMaster=S.ivaMaster||{};const n=num(v)/100;if(n>0)S.ivaMaster[sk]=n;else delete S.ivaMaster[sk];}save();}
+function addMaestro(){const sk=prompt('SKU (código que empieza con L):');if(sk&&sk.trim()){S.ncmMaster=S.ncmMaster||{};S.ncmMaster[sk.trim()]=S.ncmMaster[sk.trim()]||'';save();renderMaestro();}}
+function delMaestro(sk){if(confirm('¿Quitar '+sk+' del maestro?')){['ivaMaster','derMaster','ncmMaster'].forEach(m=>{if(S[m])delete S[m][sk];});save();renderMaestro();}}
+function importMaestro(e){const f=e.target.files[0];if(!f)return;
+ const done=rows=>{if(!rows||rows.length<2){alert('Sin filas.');return;}const hdr=rows[0].map(h=>String(h).trim().toLowerCase());const find=re=>hdr.findIndex(h=>re.test(h));const ci={sku:find(/sku|c[oó]d|solic/),desc:find(/descrip|detalle|articul|producto|nombre/),ncm:find(/ncm|posici|partida|hs/),der:find(/derech|advalor|arancel/),iva:find(/iva/)};let n=0;S.ncmMaster=S.ncmMaster||{};S.derMaster=S.derMaster||{};S.ivaMaster=S.ivaMaster||{};S.descMaster=S.descMaster||{};
+  for(let r=1;r<rows.length;r++){const row=rows[r];const sk=ci.sku>=0?String(row[ci.sku]||'').trim():'';if(!sk)continue;if(ci.desc>=0&&String(row[ci.desc]||'').trim())S.descMaster[sk]=String(row[ci.desc]).trim();if(ci.ncm>=0&&String(row[ci.ncm]||'').trim())S.ncmMaster[sk]=String(row[ci.ncm]).trim();if(ci.der>=0){let d=pnum(row[ci.der]);if(isFinite(d)&&d>0){if(d>1)d/=100;S.derMaster[sk]=d;}}if(ci.iva>=0){let v=pnum(row[ci.iva]);if(isFinite(v)&&v>0){if(v>1)v/=100;S.ivaMaster[sk]=v;}}n++;}
+  save();renderMaestro();setTimeout(()=>alert(n+' productos cargados/actualizados en el maestro.'),50);};
+ const nm=f.name.toLowerCase();
+ if(nm.endsWith('.xlsx')||nm.endsWith('.xls')){if(typeof XLSX==='undefined'){alert('Excel requiere internet la primera vez; probá con CSV.');e.target.value='';return;}const r=new FileReader();r.onload=()=>{try{const wb=XLSX.read(new Uint8Array(r.result),{type:'array'});done(XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]],{header:1,defval:''}));}catch(x){alert('No pude leer el Excel: '+x.message);}};r.readAsArrayBuffer(f);}
+ else{const r=new FileReader();r.onload=()=>done(parseCSV(r.result));r.readAsText(f);}
+ e.target.value='';}
+function exportMaestro(){const aoa=[['SKU','Descripción','NCM','Derecho %','IVA %']];maestroSKUs().forEach(sk=>aoa.push([sk,(S.descMaster||{})[sk]||'',(S.ncmMaster||{})[sk]||'',(S.derMaster||{})[sk]!=null?S.derMaster[sk]*100:'',(S.ivaMaster||{})[sk]!=null?S.ivaMaster[sk]*100:'']));
+ if(typeof XLSX!=='undefined'){const ws=XLSX.utils.aoa_to_sheet(aoa);const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'Maestro');XLSX.writeFile(wb,'Maestro_productos.xlsx');}else{const csv=aoa.map(r=>r.map(x=>'"'+String(x==null?'':x).replace(/"/g,'""')+'"').join(',')).join('\n');dl(new Blob(['﻿'+csv],{type:'text/csv'}),'Maestro_productos.csv');}}
+function renderAll(){renderParam();renderPE();renderAR();renderSeg();renderResumen();renderMaestro();}
+function seedPagos(){if(S.seededPagos)return;const map={};S.seg.forEach(r=>{if(map[r.id]&&(!r.pagos||!r.pagos.length))r.pagos=map[r.id];});S.seededPagos=true;save();}
+
+// ---------- Login M365 (MSAL) + sincronización SharePoint (Graph) ----------
+const MSAL_CFG={auth:{clientId:"73344446-c533-49e2-8bf1-6f23a9696d47",authority:"https://login.microsoftonline.com/27cfe214-f2f8-46f7-a731-282bcb32b2b3",redirectUri:"https://luminatec.github.io/herramienta-comex/"},cache:{cacheLocation:"localStorage"}};
+const GRAPH_SCOPES=["User.Read","Sites.ReadWrite.All"];
+const SP_HOST="luminatec.sharepoint.com",SP_SITE="/sites/Luminatec-Operacines",DATA_FILE="comex_data.json";
+let msalApp=null,account=null,cloudReady=false,siteId=null,pushTimer=null;
+function setSync(s,msg){const el=document.getElementById("syncbar");if(!el)return;const map={offline:["#8a9a97","Sin conectar"],connecting:["#c0662e","Conectando…"],loading:["#2f6f8f","Cargando datos…"],synced:["#3a8f57","Sincronizado ☁"],saving:["#c0662e","Guardando…"],error:["#9c0006","Error de sincronización"]};const p=map[s]||["#8a9a97",s];const who=account?("👤 "+(account.name||account.username)+" · "):"";const links=account?' · <a href="#" onclick="cloudReload();return false">Recargar</a> · <a href="#" onclick="logout();return false">Salir</a>':' <button class="mini" onclick="login()">Iniciar sesión M365</button>';el.innerHTML=who+'<b style="color:'+p[0]+'">'+(msg||p[1])+'</b>'+links;}
+async function initAuth(){if(typeof msal==="undefined"){setSync("error","No se cargó la librería de inicio de sesión (revisá tu conexión a internet)");return;}if(!window.isSecureContext){setSync("error","Abrí la app desde https://luminatec.github.io/herramienta-comex/ (el login no funciona abriendo el archivo local)");return;}try{msalApp=new msal.PublicClientApplication(MSAL_CFG);await msalApp.initialize();const resp=await msalApp.handleRedirectPromise();if(resp&&resp.account)account=resp.account;else{const a=msalApp.getAllAccounts();if(a.length)account=a[0];}}catch(e){console.error(e);setSync("error","No se pudo iniciar el login");return;}if(account){msalApp.setActiveAccount(account);setSync("loading");await cloudLoad();}else setSync("offline","Iniciá sesión para ver los datos compartidos");}
+async function login(){if(!msalApp){alert("El login no está disponible. Si abriste el archivo con doble clic, cerralo y entrá desde la dirección web https://luminatec.github.io/herramienta-comex/ — el inicio de sesión de Microsoft sólo funciona por HTTPS, no con el archivo local.");return;}try{setSync("connecting");await msalApp.loginRedirect({scopes:GRAPH_SCOPES});}catch(e){alert("No se pudo iniciar sesión: "+e.message);}}
+async function logout(){try{await msalApp.logoutRedirect();}catch(e){}}
+async function getToken(){try{const r=await msalApp.acquireTokenSilent({scopes:GRAPH_SCOPES,account});return r.accessToken;}catch(e){const r=await msalApp.acquireTokenPopup({scopes:GRAPH_SCOPES});return r.accessToken;}}
+async function graph(path,opts){opts=opts||{};const t=await getToken();return fetch("https://graph.microsoft.com/v1.0"+path,Object.assign({},opts,{headers:Object.assign({Authorization:"Bearer "+t},opts.headers||{})}));}
+async function ensureSite(){if(siteId)return;const r=await graph("/sites/"+SP_HOST+":"+SP_SITE);const j=await r.json();if(!j.id)throw new Error("No encuentro el sitio de SharePoint");siteId=j.id;}
+async function cloudLoad(){try{await ensureSite();const r=await graph("/sites/"+siteId+"/drive/root:/"+DATA_FILE+":/content");if(r.status===200){const data=await r.json();S=deepMerge(structuredClone(defaults),data);localStorage.setItem(LS,JSON.stringify(S));cloudReady=true;renderAll();show("inst");setSync("synced");}else if(r.status===404){cloudReady=true;renderAll();setSync("synced","Sin datos aún — empezá a cargar");}else{setSync("error","No pude leer los datos ("+r.status+")");}}catch(e){console.error(e);setSync("error","Error al cargar los datos");}}
+async function cloudReload(){setSync("loading");siteId=null;await cloudLoad();}
+function scheduleCloudPush(){if(!account||!cloudReady)return;clearTimeout(pushTimer);pushTimer=setTimeout(cloudPush,1500);}
+async function cloudPush(){try{await ensureSite();setSync("saving");const r=await graph("/sites/"+siteId+"/drive/root:/"+DATA_FILE+":/content",{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify(S)});setSync(r.ok?"synced":"error",r.ok?null:"No se pudo guardar en la nube");}catch(e){console.error(e);setSync("error","Error al guardar");}}
+
+renderAll();show("inst");restoreFolder();setSync("offline");initAuth();
+</script>
+</body>
+</html>
