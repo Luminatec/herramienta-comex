@@ -180,7 +180,7 @@ function timelineHTML(){const H=90;const ev=[];const over=[];const noDate=[];
  S.seg.forEach((r,ix)=>{if(r.eta&&r.estado!=='Entregado'&&r.estado!=='Nacionalizado'){const d=diasETA(r.eta);if(d!=null){if(d>=0&&d<=H)ev.push({d,label:(r.id||'')+' · arribo',color:'#2f6f8f',ix});else if(d<0)over.push((r.id||'')+' arribo venc. '+(-d)+'d');}}
   (r.pagos||[]).forEach(p=>{if(!p.pagado){const lab=(r.id||'')+' · '+(p.concepto||'pago')+(p.monto?(' USD '+money(num(p.monto))):'');if(p.fecha){const d=diasETA(p.fecha);if(d!=null){if(d>=0&&d<=H)ev.push({d,label:lab,color:'#c0662e',ix});else if(d<0)over.push(lab+' venc. '+(-d)+'d');}}else{noDate.push(lab);}}});});
  ev.sort((a,b)=>a.d-b.d);
- if(!ev.length&&!over.length&&!noDate.length)return '<div class="card"><h3>Línea de tiempo — próximos 90 días</h3><div class="muted">Sin arribos ni vencimientos de pago en la ventana.</div></div>';
+ if(!ev.length&&!over.length&&!noDate.length)return '<div class="card"><h3>Línea de tiempo — próximos 90 días</h3><div class="muted">'+(account?'Sin arribos ni vencimientos de pago en la ventana.':'🔒 Iniciá sesión M365 (arriba) para ver los arribos y pagos — los datos están en SharePoint.')+'</div></div>';
  const grid=[15,30,45,60,75].map(g=>'<div class="tlgrid" style="left:'+(g/H*100)+'%"><span>'+g+'d</span></div>').join('');
  const marks=ev.map(e=>'<div class="tlmark" style="left:'+(e.d/H*100).toFixed(1)+'%;background:'+e.color+';cursor:pointer" title="+'+e.d+'d ('+fmtD(dateFromDays(e.d))+'): '+e.label.replace(/"/g,'&quot;')+' — clic para abrir" onclick="openEdit('+e.ix+')"></div>').join('');
  const list=ev.map(e=>'<div class="tlrow" style="cursor:pointer" onclick="openEdit('+e.ix+')"><span class="tldot" style="background:'+e.color+'"></span><b>+'+e.d+'d</b> · '+fmtD(dateFromDays(e.d))+' · '+e.label+'</div>').join('');
@@ -521,7 +521,7 @@ function renderSeg(){
  renderBoard();
 }
 function renderBoard(){const el=document.getElementById('segBoard');if(!el)return;
- if(!S.seg.length){el.innerHTML=`<p class="muted">No hay embarques todavía. Usá “+ Nuevo embarque” o “Importar (CSV)”.</p>`;return;}
+ if(!S.seg.length){el.innerHTML=account?`<p class="muted">No hay embarques todavía. Usá “+ Nuevo embarque” o “Importar (CSV)”.</p>`:`<p class="note" style="border-color:#c0662e;background:#fdf6e3">🔒 No hay sesión iniciada. Los datos están en SharePoint — tocá <b>Iniciar sesión M365</b> (arriba) para verlos.</p>`;return;}
  const idxs=S.seg.map((r,ix)=>ix).filter(ix=>matchFilter(S.seg[ix]));
  if(!idxs.length){el.innerHTML=`<p class="muted">Ningún embarque coincide con el filtro.</p>`;return;}
  const groups={};idxs.forEach(ix=>{const e=S.seg[ix].estado||"Sin estado";(groups[e]=groups[e]||[]).push(ix);});
@@ -793,7 +793,7 @@ function renderResumen(){const seg=S.seg.filter(resMatch);const activos=seg.filt
  const estCount=ESTADOS.map(e=>[e,seg.filter(r=>r.estado===e).length]).filter(x=>x[1]);
  const estTable=`<table><tr><th>Estado</th><th class="right">Embarques</th></tr>${estCount.map(x=>`<tr><td>${x[0]}</td><td class="right">${x[1]}</td></tr>`).join('')||'<tr><td colspan="2" class="muted">Sin datos</td></tr>'}</table>`;
  const paisRows=['Argentina','Perú'].map(p=>`<tr><td>${p}</td><td class="right">${byPais(p).length}</td><td class="right">${money(val(byPais(p)))}</td></tr>`).join('');
- document.getElementById('tab-resumen').innerHTML=`<h2>Resumen ejecutivo</h2>${resFilterBar()}
+ document.getElementById('tab-resumen').innerHTML=`<h2>Resumen ejecutivo</h2>${(!account&&!S.seg.length)?'<div class="note" style="border-color:#c0662e;background:#fdf6e3">🔒 No hay sesión iniciada. Los datos viven en SharePoint — tocá <b>Iniciar sesión M365</b> (arriba) para ver el dashboard.</div>':''}${resFilterBar()}
   <div class="panel"><div class="kpis">${kpi(activos.length,'Embarques activos')}${kpi('USD '+money(val(activos)),'Valor provisorio en curso')}${kpi('USD '+money(saldoPend),'Saldo a pagar pendiente')}${kpi('USD '+money(due15),'Desembolsos 0–15 días',due15?'#c0662e':'var(--navy)')}${kpi('USD '+money(due30),'Desembolsos 16–30 días',due30?'#c0662e':'var(--navy)')}${kpi('USD '+money(due60),'Desembolsos 31–60 días',due60?'#c0662e':'var(--navy)')}</div></div>
   ${timelineHTML()}
   <div class="grid">
