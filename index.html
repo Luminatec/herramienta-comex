@@ -16,6 +16,11 @@
 .tlrow{font-size:13px;padding:2px 0;border-bottom:1px solid #f0f3f2}
 .tldot{display:inline-block;width:9px;height:9px;border-radius:50%;vertical-align:middle;margin-right:5px}
 .tllist{margin-top:8px;max-height:190px;overflow:auto}
+.stbar{display:flex;gap:2px;margin:6px 0}
+.stseg{flex:1;height:6px;border-radius:3px;background:#e0e6e4}
+.stseg.done{background:#3a9b8e}
+.stseg.cur{background:#14453f}
+.stseg.pend{background:#e0e6e4}
 body{font-family:Arial,Helvetica,sans-serif;margin:0;color:var(--ink);background:#f4f6f6;font-size:14px}
 header{background:var(--navy);color:#fff;padding:14px 20px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px}
 header h1{font-size:18px;margin:0}
@@ -192,6 +197,17 @@ async function loadCardDocs(ix){const el=document.getElementById('cd_'+ix);if(!e
  el.innerHTML='<span class="exl">Documentos ('+files.length+' en carpeta)</span> '+(chips||'<span class="muted small">Sin documentos clave reconocidos.</span>')+' <button class="mini sec" data-edit="1">Ver todos</button>';
  el.querySelectorAll('button[data-fn]').forEach(b=>b.onclick=()=>openDoc(r.id,b.getAttribute('data-fn')));
  const eb=el.querySelector('button[data-edit]');if(eb)eb.onclick=()=>openEdit(ix);}
+function gastosEditor(c){const d=S[c];const rows=d.gastosRows||[];
+ const usdOf=g=>g.moneda==='USD'?num(g.monto):(num(g.tc)>0?num(g.monto)/num(g.tc):0);
+ const body=rows.map((g,i)=>`<tr><td><input class="in" value="${(g.concepto||'').replace(/"/g,'&quot;')}" onchange="setGastoRow('${c}',${i},'concepto',this.value)"></td><td><input type="date" class="in" value="${g.fecha||''}" onchange="setGastoRow('${c}',${i},'fecha',this.value)"></td><td><select class="in" onchange="setGastoRow('${c}',${i},'moneda',this.value)"><option ${g.moneda!=='USD'?'selected':''}>ARS</option><option ${g.moneda==='USD'?'selected':''}>USD</option></select></td><td><input class="in" style="width:88px" value="${g.monto||''}" onchange="setGastoRow('${c}',${i},'monto',this.value)"></td><td><input class="in" style="width:78px" value="${g.tc||''}" ${g.moneda==='USD'?'disabled':''} placeholder="TC día" onchange="setGastoRow('${c}',${i},'tc',this.value)"></td><td class="r">${money(usdOf(g))}</td><td><button class="mini sec" onclick="delGastoRow('${c}',${i})">✕</button></td></tr>`).join('');
+ const tot=rows.reduce((s,g)=>s+usdOf(g),0);
+ return `<table style="margin:0;font-size:13px"><thead><tr><th>Concepto / proveedor</th><th>Fecha</th><th>Mon.</th><th>Monto</th><th>TC día</th><th class="r">USD</th><th></th></tr></thead><tbody>${body||'<tr><td colspan="7" class="muted">Sin gastos. Agregá una fila por factura (proveedor, fecha, moneda, monto y TC del día).</td></tr>'}</tbody><tfoot><tr><td colspan="5" class="r"><b>Total gastos (USD)</b></td><td class="r"><b>${money(tot)}</b></td><td></td></tr></tfoot></table><button class="mini" onclick="addGastoRow('${c}')">+ Agregar gasto</button>`;}
+function addGastoRow(c){S[c].gastosRows=S[c].gastosRows||[];S[c].gastosRows.push({concepto:'',fecha:'',moneda:'ARS',monto:'',tc:S[c].tc||''});save();c==='ar'?renderAR():renderPE();}
+function setGastoRow(c,i,k,v){S[c].gastosRows=S[c].gastosRows||[];S[c].gastosRows[i][k]=v;save();c==='ar'?renderAR():renderPE();}
+function delGastoRow(c,i){S[c].gastosRows.splice(i,1);save();c==='ar'?renderAR():renderPE();}
+function gastosUSD(d){const rows=d.gastosRows;if(rows&&rows.length)return rows.reduce((s,g)=>s+(g.moneda==='USD'?num(g.monto):(num(g.tc)>0?num(g.monto)/num(g.tc):0)),0);return num(d.agente)+num(d.honor)+num(d.terminal)+num(d.otros);}
+function clonarCosteo(i){i=+i;const src=S.seg[i]&&S.seg[i].costeo;if(!src)return;if(!confirm('¿Reemplazar el costeo actual con una copia del de '+(S.seg[i].id||'')+'?'))return;S.ar=structuredClone(src);save();renderAR();}
+function stageBar(estado){const idx=ESTADOS.indexOf(estado);return '<div class="stbar" title="'+(estado||'sin estado')+'">'+ESTADOS.map((e,k)=>'<span class="stseg '+(idx<0?'pend':(k<idx?'done':(k===idx?'cur':'pend')))+'" title="'+e+'"></span>').join('')+'</div>';}
 function renderParam(){
  const p=S.params;
  const row=(k,label,isPct=true)=>`<div class="field"><label>${label}</label><input class="in" value="${isPct?(p[k]*100):p[k]}" onchange="setParam('${k}',this.value,${isPct})">${isPct?'<span class="muted">%</span>':'<span class="muted">USD</span>'}</div>`;
@@ -243,7 +259,7 @@ function computeAR(){
  const cifTot=items.reduce((s,i)=>s+i.cif,0);
  const derTot=items.reduce((s,i)=>s+i.der,0);
  const tasa=d.tasaOv!==""&&d.tasaOv!=null?num(d.tasaOv):Math.min(p.ar_tasa*cifTot,capAR(cifTot));
- const arancel=num(d.arancel),gastos=num(d.agente)+num(d.honor)+num(d.terminal)+num(d.otros);
+ const arancel=num(d.arancel),gastos=gastosUSD(d);
  const costoNac=derTot+tasa+arancel+gastos;
  const landed=cifTot+costoNac;
  const baseImp=cifTot+derTot+tasa+arancel;
@@ -362,8 +378,11 @@ function exportCosteo(c){const o=costeoAOA(c);const fn='Costeo_'+o.pais+'_'+new 
 function renderAR(){
  const d=S.ar,R=computeAR();
  const F=(k,label,v)=>`<div class="field"><label>${label}</label><input class="in" value="${v}" onchange="setF('ar','${k}',this.value)"></div>`;
+ const _cc=S.seg.map((r,i)=>[r,i]).filter(x=>x[0].costeo);
+ const cloneBar=_cc.length?`<div class="tools" style="margin-top:4px"><label style="font-size:13px">Clonar costeo de:</label><select id="cloneSel">${_cc.map(x=>`<option value="${x[1]}">${x[0].id||'(sin id)'}</option>`).join('')}</select><button class="mini sec" onclick="clonarCosteo(document.getElementById('cloneSel').value)">Clonar como base</button> <span class="muted small">(copia ítems y gastos de otro embarque)</span></div>`:'';
  document.getElementById("tab-ar").innerHTML=`
  <h2>Costeo de nacionalización — Argentina</h2>
+ ${cloneBar}
  ${costeoCtx&&costeoCtx.c==='ar'?`<div class="note" style="border-color:#c08a2e;background:#fdf6e3">🔗 Costeando embarque <b>${(S.seg[costeoCtx.ix]||{}).id||''}</b>. Está vacío hasta que cargues los ítems (a mano o con “Importar factura”); después tocá <b>Guardar en embarque</b> para volcar el costo al tracker. <button class="mini" onclick="traerDeCarpeta()">📥 Traer ítems de la carpeta</button> <button class="mini" onclick="guardarCosteo()">Guardar en embarque</button> <button class="mini sec" onclick="desvincular()">Desvincular</button></div>`:''}
  <div class="grid">
   <div class="card"><h3>Datos y gastos (USD)</h3>
@@ -371,10 +390,7 @@ function renderAR(){
    ${F('flete','Flete internacional',d.flete)}
    ${F('seguro','Seguro',d.seguro)}
    ${F('arancel','Arancel SIM',d.arancel)}
-   ${F('agente','Gastos agente de carga',d.agente)}
-   ${F('honor','Honorarios despachante',d.honor)}
-   ${F('terminal','Terminal / almacenaje',d.terminal)}
-   ${F('otros','Otros gastos',d.otros)}
+   <div class="field" style="grid-column:1 / -1"><span class="muted small">Gastos (agente, despachante, terminal, otros): se cargan abajo por factura ⬇</span></div>
    ${F('iibb','IIBB percepción (USD)',d.iibb)}
    <div class="field"><label>Tasa estad. real (opcional)</label><input class="in" value="${d.tasaOv}" placeholder="auto 3%" onchange="setF('ar','tasaOv',this.value)"></div>
   </div>
@@ -397,6 +413,7 @@ function renderAR(){
    <div class="res g"><span>MARGEN TOTAL</span><b>${R.margenTot==null?'—':pct(R.margenTot)}${R.venta>0?' · USD '+money(R.ganancia):''}</b></div>
   </div>
  </div>
+ <div class="card"><h3>Gastos de nacionalización (por factura)</h3><div class="note" style="margin-bottom:8px">Una fila por factura del despachante/terminal/agente, con su fecha y el TC del día. Se convierten a USD al TC de cada fila y se suman al costo. Reemplaza a las casillas únicas anteriores.</div>${gastosEditor('ar')}</div>
  <div class="tools" style="margin-top:6px"><label style="font-size:13px">PVP · Margen objetivo</label><input class="in" style="width:70px" value="${d.margenObj||''}" onchange="setF('ar','margenObj',this.value)"><span class="muted">%</span><button class="mini" onclick="aplicarPVP('ar')">Aplicar PVP sugerido a todos</button><button class="mini sec" onclick="printCosteo('ar')">🖨 PDF del costeo</button><button class="mini sec" onclick="exportCosteo('ar')">⬇ Excel</button></div>
  <h3>Ítems</h3>${itemsTable('ar')}
  <div class="note">Tasa estadística: en blanco estima 3% s/CIF con tope; cargá la cifra real de la liquidación para exactitud. Importes en gris = crédito fiscal recuperable (no van al costo, sí al desembolso).</div>`;
@@ -531,6 +548,7 @@ function card(ix){const r=S.seg[ix];const dias=diasETA(r.eta);const al=alerta(r)
   <div class="sc-prod">${r.prod||''}</div>
   <div class="muted small">${[r.prov,r.origen,r.modo].filter(Boolean).join(' · ')}</div>
   <div class="sc-eta">ETA <b>${fmtD(r.eta)}</b>${daysb}</div>
+  ${stageBar(r.estado)}
   ${r.despa?`<div class="muted small">👤 ${r.despa}</div>`:''}
   ${r.costEst?`<div class="muted small">Provisorio USD ${money(num(r.costEst))}${desv?' · desvío '+desv:''}</div>`:''}
   ${(r.pagos&&r.pagos.length)?`<div class="muted small">💲 Pagos ${pagosInfo(r).pagados}/${pagosInfo(r).tot}${pagosInfo(r).saldo?` · saldo USD ${money(pagosInfo(r).saldo)}`:''}</div>`:''}
