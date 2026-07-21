@@ -208,6 +208,9 @@ function delGastoRow(c,i){S[c].gastosRows.splice(i,1);save();c==='ar'?renderAR()
 function gastosUSD(d){const rows=d.gastosRows;if(rows&&rows.length)return rows.reduce((s,g)=>s+(g.moneda==='USD'?num(g.monto):(num(g.tc)>0?num(g.monto)/num(g.tc):0)),0);return num(d.agente)+num(d.honor)+num(d.terminal)+num(d.otros);}
 function clonarCosteo(i){i=+i;const src=S.seg[i]&&S.seg[i].costeo;if(!src)return;if(!confirm('¿Reemplazar el costeo actual con una copia del de '+(S.seg[i].id||'')+'?'))return;S.ar=structuredClone(src);save();renderAR();}
 function stageBar(estado){const idx=ESTADOS.indexOf(estado);return '<div class="stbar" title="'+(estado||'sin estado')+'">'+ESTADOS.map((e,k)=>'<span class="stseg '+(idx<0?'pend':(k<idx?'done':(k===idx?'cur':'pend')))+'" title="'+e+'"></span>').join('')+'</div>';}
+function normId(v){v=(v||'').toString().trim().toUpperCase().replace(/[\s\-]+/g,'_').replace(/_+/g,'_').replace(/^_|_$/g,'');const m=v.match(/^(LUMI|LUPE|LUCL)_?(\d{3})_?([A-Z]?)$/);return m?m[1]+'_'+m[2]+m[3]:v;}
+function idOK(v){return /^(LUMI|LUPE|LUCL)_\d{3}[A-Z]?$/.test(v);}
+function normIdField(){const el=document.getElementById('ed_id');if(!el)return;el.value=normId(el.value);const hh=document.getElementById('idHint');if(hh)hh.innerHTML=el.value?(idOK(el.value)?'<span style="color:#3a8f57">✓ formato OK</span>':'<span style="color:#c0662e">⚠ formato no estándar — usá LUMI_### (opcional letra final, ej. LUMI_295 o LUMI_295A)</span>'):'';}
 function renderParam(){
  const p=S.params;
  const row=(k,label,isPct=true)=>`<div class="field"><label>${label}</label><input class="in" value="${isPct?(p[k]*100):p[k]}" onchange="setParam('${k}',this.value,${isPct})">${isPct?'<span class="muted">%</span>':'<span class="muted">USD</span>'}</div>`;
@@ -568,7 +571,7 @@ function openEdit(ix){const r=S.seg[ix];
  const html=`<div class="ov" onclick="if(event.target===this)closeM()"><div class="modal">
   <h3>Embarque ${esc(r.id)||'nuevo'}</h3>
   <div class="edgrid">
-   ${F('Embarque ID',t('id'))}${F('País',`<select id="ed_pais">${opts(PAISES,r.pais)}</select>`)}
+   ${F('Embarque ID',`<input id="ed_id" value="${esc(r.id)}" onblur="normIdField()" placeholder="LUMI_###"><div id="idHint" class="muted small" style="margin-top:2px"></div>`)}${F('País',`<select id="ed_pais">${opts(PAISES,r.pais)}</select>`)}
    ${F('Proveedor',t('prov'))}${F('Producto/Marca',t('prod'))}
    ${F('Origen',t('origen'))}${F('Modo',`<select id="ed_modo">${opts(MODOS,r.modo)}</select>`)}
    ${F('Incoterm',t('inco'))}${F('Estado',`<select id="ed_estado" onchange="S.seg[${ix}].estado=this.value;renderDocChk(${ix})">${opts(ESTADOS,r.estado)}</select>`)}
@@ -627,7 +630,7 @@ async function autoMarkAllDocs(){if(!FSA||!fsGranted){alert('Conectá primero la
  save();renderSeg();
  alert('Detección completa.\n'+marked+' documento(s) marcados en '+touched+' embarque(s).'+(detail.length?'\n\n'+detail.join('\n'):'')+(nofolder.length?'\n\nSin carpeta aún: '+nofolder.join(', '):''));}
 function closeM(){const m=document.getElementById('editModal');if(m)m.remove();}
-function saveEdit(ix){['id','pais','prov','prod','origen','modo','inco','estado','fOrden','etd','eta','fOfic','fLib','despa','costEst','costReal','docs','notas'].forEach(k=>{const el=document.getElementById('ed_'+k);if(el)S.seg[ix][k]=el.value;});save();if(fsGranted&&S.seg[ix].id)ensureFolder(S.seg[ix].id,true);closeM();renderSeg();}
+function saveEdit(ix){['id','pais','prov','prod','origen','modo','inco','estado','fOrden','etd','eta','fOfic','fLib','despa','costEst','costReal','docs','notas'].forEach(k=>{const el=document.getElementById('ed_'+k);if(el)S.seg[ix][k]=el.value;});if(S.seg[ix].id){S.seg[ix].id=normId(S.seg[ix].id);if(!idOK(S.seg[ix].id))setTimeout(()=>alert('Aviso: el ID "'+S.seg[ix].id+'" no tiene el formato estándar (LUMI_### / LUMI_###A). Se guardó igual, pero revisalo para poder cruzarlo con la carpeta y Odoo.'),60);}save();if(fsGranted&&S.seg[ix].id)ensureFolder(S.seg[ix].id,true);closeM();renderSeg();}
 function delSegM(ix){if(confirm('¿Eliminar este embarque?')){S.seg.splice(ix,1);save();closeM();renderSeg();}}
 function importSegFile(e){const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=()=>importSegRows(parseCSV(r.result));r.readAsText(f);e.target.value='';}
 function importSegRows(rows){if(!rows||rows.length<2){alert('CSV vacío o sin filas de datos.');return;}
