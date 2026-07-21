@@ -335,7 +335,7 @@ async function autoFillFromFolder(ix,c){const r=S.seg[ix];const dk=c==='ar'?'der
  const score=n=>{n=n.toLowerCase();let s=0;if(/\bci\b|commercial|invoice|factura|proforma|\bpi\b/.test(n))s+=3;if(/fanttik|order|pedido/.test(n))s+=1;return s;};
  let all=[];try{for await(const [n,h] of dh.entries()){if(h.kind==='file'&&/\.(xlsx?|pdf)$/i.test(n)&&!/^~\$/.test(n))all.push([n,h]);}}catch(e){return 0;}
  const tryFiles=async list=>{for(const [n,h] of list){try{let best=[];
-   if(/\.pdf$/i.test(n)){const lines=await readPdfText(await h.getFile());best=detectItems(lines.map(l=>l.split(/\s{2,}/)),dk);}
+   if(/\.pdf$/i.test(n)){const lines=await readPdfText(await h.getFile());best=detectItems(lines.map(l=>l.split(/\s{2,}/)),dk);if(!best.length)best=detectB2Box(lines,dk);}
    else{if(typeof XLSX==='undefined')continue;const wb=XLSX.read(new Uint8Array(await (await h.getFile()).arrayBuffer()),{type:'array'});wb.SheetNames.forEach(sn=>{const it=detectItems(XLSX.utils.sheet_to_json(wb.Sheets[sn],{header:1,defval:''}),dk);if(it.length>best.length)best=it;});}
    if(best.length){if(c==='ar')learnFillProd(best);S[c].items=best;save();setTimeout(()=>alert(best.length+' ítems traídos de "'+n+'".\nRevisá % de derecho (el IVA se autocompleta del maestro por SKU).'),80);return best.length;}
   }catch(e){}}return 0;};
@@ -344,7 +344,9 @@ async function autoFillFromFolder(ix,c){const r=S.seg[ix];const dk=c==='ar'?'der
  let n=await tryFiles(prv);if(n)return n;
  // 2) fallback: cualquier Excel de la carpeta (excepto el propio costeo)
  const xls=all.filter(f=>/\.xlsx?$/i.test(f[0])&&!esProveedor(f[0])&&!/coste|costo/i.test(f[0])).sort((a,b)=>score(b[0])-score(a[0]));
- return await tryFiles(xls);}
+ const _n2=await tryFiles(xls);if(_n2)return _n2;
+ const pdfs=all.filter(f=>/\.pdf$/i.test(f[0])&&score(f[0])>0).sort((a,b)=>score(b[0])-score(a[0]));
+ return await tryFiles(pdfs);}
 function traerDeCarpeta(){if(!costeoCtx)return;if(!fsGranted){alert('Primero conectá la carpeta de documentos en Seguimiento.');return;}autoFillFromFolder(costeoCtx.ix,costeoCtx.c).then(n=>{if(n){renderAR();renderPE();}else alert('No pude leer automáticamente una factura de PETDUR (Excel o PDF de texto) en la carpeta. Podés usar "Importar factura" o cargar los ítems a mano.');});}
 function guardarCosteo(){if(!costeoCtx)return;const c=costeoCtx.c;const R=c==='ar'?computeAR():computePE();const r=S.seg[costeoCtx.ix];if(!r){costeoCtx=null;return;}r.costeo=structuredClone(S[c]);r.costEst=Math.round(R.landed*100)/100;save();renderSeg();alert('Costeo guardado en '+(r.id||'el embarque')+'.\nCosto estimado actualizado a USD '+money(R.landed));}
 function desvincular(){costeoCtx=null;renderAR();renderPE();}
@@ -709,6 +711,13 @@ function detectItems(rows,dk){
  if(hdr>=0)return build(rows.slice(hdr+1),map);
  return build(rows,{sku:0,desc:1,qty:2,fob:3,der:4});
 }
+function detectB2Box(lines,dk){const items=[];let sku='',desc='';
+ for(const raw of lines){const line=(raw||'').trim();if(!line)continue;
+  const mpr=line.match(/PR\s*Code:\s*([A-Za-z0-9\-_.]+)/i);if(mpr){sku=mpr[1];continue;}
+  if(!/:/.test(line)&&/[A-ZÁÉÍÓÚÑ]/.test(line)&&/^[0-9A-ZÁÉÍÓÚÑ()\/\-.\s]{3,40}$/.test(line)&&!/PROFORMA|TOTAL|CLIENTE|INCOTERM|CUIT|EMAIL|FECHA|TASA|AVISO|CBM|PCS|CAJAS|\bGW\b|PAGO|USD|CNY|BENEFIC/i.test(line)){desc=line.replace(/\s+/g,' ').trim();}
+  const amts=[...line.matchAll(/\$\s*([\d.,]+)/g)].map(m=>pnum(m[1])).filter(v=>isFinite(v)&&v>0);
+  if(amts.length===2){const fob=amts[0],total=amts[1];if(fob>0&&total>=fob){const qty=Math.round(total/fob);if(qty>=1&&Math.abs(qty*fob-total)<=Math.max(1,total*0.03)){const it={sku:sku||'',desc:desc||'',qty:qty,fob:fob,ncm:''};it[dk]=0;items.push(it);sku='';desc='';}}}}
+ return items;}
 function learnFillProd(items){if(!S.ivaMaster)S.ivaMaster={};if(!S.derMaster)S.derMaster={};if(!S.ncmMaster)S.ncmMaster={};if(!S.descMaster)S.descMaster={};
  items.forEach(it=>{const k=(it.sku||'').trim();if(!k)return;
   const iv=num(it.ivaR);if(it.ivaR!=null&&it.ivaR!==''&&iv>0)S.ivaMaster[k]=iv;else if(S.ivaMaster[k]!=null)it.ivaR=S.ivaMaster[k];
@@ -725,7 +734,7 @@ function applyItems(c,items){
 }
 function loadRows(c,rows){const dk=c==='ar'?'der':'adv';const items=detectItems(rows,dk);if(!items.length){alert('No pude detectar las columnas de Cantidad y Precio unitario. Descargá la "Plantilla" y pegá los datos con ese formato.');return;}applyItems(c,items);}
 async function readPdfText(blob){if(typeof pdfjsLib==='undefined')throw new Error('El lector de PDF no cargó (requiere internet la primera vez que abrís la app).');const buf=await blob.arrayBuffer();const pdf=await pdfjsLib.getDocument({data:buf}).promise;const lines=[];for(let p=1;p<=pdf.numPages;p++){const page=await pdf.getPage(p);const tc=await page.getTextContent();const byY={};tc.items.forEach(it=>{if(!it.str||!it.str.trim())return;const y=Math.round(it.transform[5]);(byY[y]=byY[y]||[]).push([it.transform[4],it.str]);});Object.keys(byY).map(Number).sort((a,b)=>b-a).forEach(y=>{lines.push(byY[y].sort((a,b)=>a[0]-b[0]).map(x=>x[1]).join('  '));});}return lines;}
-async function processPdf(c,blob){let lines;try{lines=await readPdfText(blob);}catch(e){alert(e.message);return;}const dk=c==='ar'?'der':'adv';const rows=lines.map(l=>l.split(/\s{2,}/).map(x=>x.trim()));const items=detectItems(rows,dk);if(items.length){applyItems(c,items);}else{showPaste(c,lines.join('\n'));setTimeout(()=>alert('No pude estructurar el PDF automáticamente. Te dejo el texto extraído para que lo revises y pegues (columnas: SKU, Descripción, Cantidad, FOB unitario).'),120);}}
+async function processPdf(c,blob){let lines;try{lines=await readPdfText(blob);}catch(e){alert(e.message);return;}const dk=c==='ar'?'der':'adv';const rows=lines.map(l=>l.split(/\s{2,}/).map(x=>x.trim()));let items=detectItems(rows,dk);if(!items.length)items=detectB2Box(lines,dk);if(items.length){applyItems(c,items);}else{showPaste(c,lines.join('\n'));setTimeout(()=>alert('No pude estructurar el PDF automáticamente. Te dejo el texto extraído para que lo revises y pegues (columnas: SKU, Descripción, Cantidad, FOB unitario).'),120);}}
 function showPaste(c,prefill){const ov=document.createElement('div');ov.style="position:fixed;inset:0;background:rgba(0,0,0,.4);display:flex;align-items:center;justify-content:center;z-index:99";
  ov.innerHTML=`<div style="background:#fff;padding:16px;border-radius:8px;max-width:560px;width:90%">
   <h3>Pegar filas de la factura</h3>
