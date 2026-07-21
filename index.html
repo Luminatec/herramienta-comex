@@ -102,6 +102,23 @@ button.mini{padding:3px 8px;font-size:12px}
 .edf span{color:#555;font-weight:bold}
 .modal textarea{width:100%;font-family:inherit;font-size:13px;padding:5px;border:1px solid #b9c6c4;border-radius:4px}
 @media(max-width:600px){.edgrid{grid-template-columns:1fr}}
+@media(max-width:640px){
+  main{padding:10px}
+  header{padding:10px 12px}
+  header h1{font-size:15px}
+  header .actions button{margin-left:0;margin-top:4px}
+  nav{flex-wrap:nowrap;overflow-x:auto;-webkit-overflow-scrolling:touch}
+  nav button{padding:11px 14px;font-size:13px;white-space:nowrap}
+  h2{font-size:17px}
+  table{display:block;overflow-x:auto;-webkit-overflow-scrolling:touch;white-space:nowrap}
+  .kpis{gap:14px}
+  .kpi{flex:1 0 40%}
+  .field input,.field select{flex:0 0 118px}
+  .modal{padding:14px}
+  .tools button,.filterbar button{flex:1 0 auto}
+  .mobwarn{display:block}
+}
+.mobwarn{display:none;background:#fdf6e3;border-left:4px solid #d9a441;color:#5a4a1e;padding:8px 12px;font-size:12px;margin:8px 0;border-radius:5px}
 </style>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
@@ -517,7 +534,7 @@ function renderSeg(){
  <div class="tools"><button onclick="newSeg()">+ Nuevo embarque</button><button class="sec" onclick="document.getElementById('imp-seg').click()">⇪ Importar (CSV)</button><input type="file" id="imp-seg" style="display:none" accept=".csv" onchange="importSegFile(event)"><button class="sec" onclick="segTpl()">Plantilla</button><button class="sec" onclick="exportCSV()">Exportar CSV</button><button class="sec" onclick="exportSegXlsx()">⬇ Excel</button></div>
  <div class="tools">${fbar}</div>
  <div class="tools filterbar"><input id="fq" placeholder="Buscar: ID, producto, proveedor, notas…" value="${segFilter.q.replace(/"/g,'&quot;')}" oninput="setFilter('q',this.value)"><select onchange="setFilter('pais',this.value)"><option value="">País (todos)</option>${opt2(PAISES,segFilter.pais)}</select><select onchange="setFilter('estado',this.value)"><option value="">Estado (todos)</option>${opt2(ESTADOS,segFilter.estado)}</select><button class="sec" onclick="clearFilter()">Limpiar</button></div>`;
- document.getElementById("tab-seg").innerHTML=tools+`<div id="segBoard"></div><p class="muted">Tocá una tarjeta para ver o editar. El arribo y las alertas se colorean solos. Recordá “Exportar respaldo” cada tanto.</p>`;
+ document.getElementById("tab-seg").innerHTML=tools+`<div class="mobwarn">📱 En el celular podés consultar, costear y editar todo. La carpeta de documentos (detectar/abrir archivos) funciona solo en la computadora.</div><div id="segBoard"></div><p class="muted">Tocá una tarjeta para ver o editar. El arribo y las alertas se colorean solos. Recordá “Exportar respaldo” cada tanto.</p>`;
  renderBoard();
 }
 function renderBoard(){const el=document.getElementById('segBoard');if(!el)return;
