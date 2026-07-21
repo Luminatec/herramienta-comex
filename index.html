@@ -137,7 +137,7 @@ const defaults={
 let S=load();
 function load(){try{const d=JSON.parse(localStorage.getItem(LS));return d?deepMerge(structuredClone(defaults),d):structuredClone(defaults);}catch(e){return structuredClone(defaults);}}
 function deepMerge(a,b){for(const k in b){if(b[k]&&typeof b[k]==="object"&&!Array.isArray(b[k]))deepMerge(a[k]=a[k]||{},b[k]);else a[k]=b[k];}return a;}
-function save(){localStorage.setItem(LS,JSON.stringify(S));scheduleCloudPush();}
+function save(){S._ts=Date.now();localStorage.setItem(LS,JSON.stringify(S));scheduleCloudPush();}
 const money=n=>isFinite(n)?n.toLocaleString('es-AR',{minimumFractionDigits:2,maximumFractionDigits:2}):"–";
 const pct=n=>isFinite(n)?(n*100).toLocaleString('es-AR',{minimumFractionDigits:1,maximumFractionDigits:1})+"%":"–";
 const num=v=>{const n=parseFloat(v);return isFinite(n)?n:0;};
@@ -456,7 +456,7 @@ function estadoColor(e){return {"Orden de compra":"#8a9a97","En producción":"#c
 function panelHTML(){
  const rows=S.seg.map((r,ix)=>({r,ix,d:diasETA(r.eta),a:alerta(r)}));
  const active=rows.filter(x=>x.r.estado!=="Entregado");
- const soon=active.filter(x=>x.d!=null&&x.d<=7).sort((a,b)=>a.d-b.d);
+ const soon=active.filter(x=>x.d!=null&&x.d>=0&&x.d<=7).sort((a,b)=>a.d-b.d);
  const alerts=rows.filter(x=>x.a);
  const val=active.reduce((s,x)=>s+num(x.r.costEst),0);
  const duePagos=[];S.seg.forEach((r,ix)=>{(r.pagos||[]).forEach(p=>{if(!p.pagado&&p.fecha){const d=diasETA(p.fecha);if(d!=null&&d<=7)duePagos.push({ix,d,p,r});}});});duePagos.sort((a,b)=>a.d-b.d);
@@ -781,7 +781,7 @@ function importMaestro(e){const f=e.target.files[0];if(!f)return;
  e.target.value='';}
 function exportMaestro(){const aoa=[['SKU','Descripción','NCM','Derecho %','IVA %']];maestroSKUs().forEach(sk=>aoa.push([sk,(S.descMaster||{})[sk]||'',(S.ncmMaster||{})[sk]||'',(S.derMaster||{})[sk]!=null?S.derMaster[sk]*100:'',(S.ivaMaster||{})[sk]!=null?S.ivaMaster[sk]*100:'']));
  if(typeof XLSX!=='undefined'){const ws=XLSX.utils.aoa_to_sheet(aoa);const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'Maestro');XLSX.writeFile(wb,'Maestro_productos.xlsx');}else{const csv=aoa.map(r=>r.map(x=>'"'+String(x==null?'':x).replace(/"/g,'""')+'"').join(',')).join('\n');dl(new Blob(['﻿'+csv],{type:'text/csv'}),'Maestro_productos.csv');}}
-function renderAll(){renderParam();renderPE();renderAR();renderSeg();renderResumen();renderMaestro();}
+function renderAll(){[['param',renderParam],['pe',renderPE],['ar',renderAR],['seg',renderSeg],['resumen',renderResumen],['maestro',renderMaestro]].forEach(function(x){try{x[1]();}catch(e){console.error('render '+x[0]+' falló:',e);var el=document.getElementById('tab-'+x[0]);if(el)el.innerHTML='<div class="note" style="border-color:#c0662e">No se pudo dibujar esta sección ('+(e.message||e)+'). El resto de la herramienta sigue funcionando; avisá para corregirlo.</div>';}});}
 function seedPagos(){if(S.seededPagos)return;const map={};S.seg.forEach(r=>{if(map[r.id]&&(!r.pagos||!r.pagos.length))r.pagos=map[r.id];});S.seededPagos=true;save();}
 
 // ---------- Login M365 (MSAL) + sincronización SharePoint (Graph) ----------
@@ -796,12 +796,14 @@ async function logout(){try{await msalApp.logoutRedirect();}catch(e){}}
 async function getToken(){try{const r=await msalApp.acquireTokenSilent({scopes:GRAPH_SCOPES,account});return r.accessToken;}catch(e){const r=await msalApp.acquireTokenPopup({scopes:GRAPH_SCOPES});return r.accessToken;}}
 async function graph(path,opts){opts=opts||{};const t=await getToken();return fetch("https://graph.microsoft.com/v1.0"+path,Object.assign({},opts,{headers:Object.assign({Authorization:"Bearer "+t},opts.headers||{})}));}
 async function ensureSite(){if(siteId)return;const r=await graph("/sites/"+SP_HOST+":"+SP_SITE);const j=await r.json();if(!j.id)throw new Error("No encuentro el sitio de SharePoint");siteId=j.id;}
-async function cloudLoad(){try{await ensureSite();const r=await graph("/sites/"+siteId+"/drive/root:/"+DATA_FILE+":/content");if(r.status===200){const data=await r.json();S=deepMerge(structuredClone(defaults),data);localStorage.setItem(LS,JSON.stringify(S));cloudReady=true;renderAll();show("inst");setSync("synced");}else if(r.status===404){cloudReady=true;renderAll();setSync("synced","Sin datos aún — empezá a cargar");}else{setSync("error","No pude leer los datos ("+r.status+")");}}catch(e){console.error(e);setSync("error","Error al cargar los datos");}}
+async function cloudLoad(){try{await ensureSite();const r=await graph("/sites/"+siteId+"/drive/root:/"+DATA_FILE+":/content");if(r.status===200){const data=await r.json();if(S&&S._ts&&data._ts&&S._ts>data._ts){cloudReady=true;renderAll();setSync("synced","Tus cambios locales eran más nuevos: subiéndolos");scheduleCloudPush();}else{S=deepMerge(structuredClone(defaults),data);localStorage.setItem(LS,JSON.stringify(S));cloudReady=true;renderAll();show("inst");setSync("synced");}}else if(r.status===404){cloudReady=true;renderAll();setSync("synced","Sin datos aún — empezá a cargar");}else{setSync("error","No pude leer los datos ("+r.status+")");}}catch(e){console.error(e);setSync("error","Error al cargar los datos");}}
 async function cloudReload(){setSync("loading");siteId=null;await cloudLoad();}
 function scheduleCloudPush(){if(!account||!cloudReady)return;clearTimeout(pushTimer);pushTimer=setTimeout(cloudPush,1500);}
 async function cloudPush(){try{await ensureSite();setSync("saving");const r=await graph("/sites/"+siteId+"/drive/root:/"+DATA_FILE+":/content",{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify(S)});setSync(r.ok?"synced":"error",r.ok?null:"No se pudo guardar en la nube");}catch(e){console.error(e);setSync("error","Error al guardar");}}
 
 renderAll();show("inst");restoreFolder();setSync("offline");initAuth();
+window.addEventListener("beforeunload",function(){try{if(document.activeElement&&document.activeElement.blur)document.activeElement.blur();}catch(e){}if(account&&cloudReady){clearTimeout(pushTimer);try{cloudPush();}catch(e){}}});
+document.addEventListener("visibilitychange",function(){if(document.hidden&&account&&cloudReady){clearTimeout(pushTimer);try{cloudPush();}catch(e){}}});
 </script>
 </body>
 </html>
