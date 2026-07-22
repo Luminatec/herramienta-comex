@@ -67,6 +67,13 @@ button.mini{padding:3px 8px;font-size:12px}
 .sc-top{display:flex;justify-content:space-between;align-items:center}
 .sc-top b{color:var(--navy)}
 .tag{background:var(--grey);border-radius:10px;padding:1px 8px;font-size:11px}
+.tag-ar{background:#d6ecff;color:#0b5394;font-weight:bold}
+.tag-pe{background:#fde2e2;color:#a1122a;font-weight:bold}
+.paish{margin:22px 0 6px;padding:8px 14px;border-radius:8px;font-size:17px;font-weight:bold;display:flex;align-items:center;gap:8px}
+.paish .paishn{font-size:12px;font-weight:normal;opacity:.8}
+.paish-ar{background:linear-gradient(90deg,#eaf4ff,#f7fbff);color:#0b5394;border-left:6px solid #74acdf}
+.paish-pe{background:linear-gradient(90deg,#ffecec,#fff7f7);color:#a1122a;border-left:6px solid #d9534f}
+.paish-x{background:#eef2f1;color:#334;border-left:6px solid #9aa}
 .sc-prod{font-weight:bold;margin:3px 0}
 .small{font-size:11px}
 .sc-eta{margin:4px 0}
@@ -495,7 +502,7 @@ function docsPend(r){const ch=r.docsChk||{};return docsExpected(r).filter(d=>!ch
 const PAISES=["Perú","Argentina"];const MODOS=["Marítimo","Aéreo","Terrestre","Plaza"];
 const SEGCOLS=[["id","Embarque ID"],["pais","País"],["prov","Proveedor"],["prod","Producto/Marca"],["origen","Origen"],["modo","Modo"],["inco","Incoterm"],["estado","Estado"],["fOrden","Fecha orden"],["etd","ETD"],["eta","ETA"],["fOfic","Fecha ofic."],["fLib","Fecha liber."],["docs","Docs pendientes"],["despa","Despachante"],["notas","Notas"],["costEst","Costo est. USD"],["costReal","Costo real USD"]];
 function diasETA(eta){if(!eta)return null;const d=Math.round((new Date(eta)-new Date().setHours(0,0,0,0))/86400000);return d;}
-function alerta(r){if(r.estado==="Entregado")return "";const dias=diasETA(r.eta);const pend=docsPend(r);if(dias!=null&&dias<0&&r.estado!=="Entregado"&&r.estado!=="Nacionalizado")return "Arribo vencido sin cerrar";if(pend.length&&dias!=null&&dias<=7&&dias>=0)return "Faltan docs y arribo próximo";if(r.docs&&dias!=null&&dias<=7&&dias>=0)return "Tareas pendientes y arribo próximo";return "";}
+function alerta(r){if(r.estado==="Entregado")return "";const dias=diasETA(r.eta);const pend=docsPend(r);if(dias!=null&&dias<0&&r.estado!=="Entregado"&&r.estado!=="Nacionalizado")return "Arribo vencido sin cerrar";if(pend.length&&dias!=null&&dias<=7&&dias>=0)return "Faltan docs y arribo próximo";return "";}
 function pagosInfo(r){const ps=r.pagos||[];const pend=ps.filter(p=>!p.pagado);let next=null;pend.forEach(p=>{if(p.fecha){const d=diasETA(p.fecha);if(next==null||(d!=null&&d<next.d))next={p,d};}});return {tot:ps.length,pagados:ps.filter(p=>p.pagado).length,pend:pend.length,saldo:pend.reduce((s,p)=>s+num(p.monto),0),next};}
 function estadoColor(e){return {"Orden de compra":"#8a9a97","En producción":"#c08a2e","Embarcado":"#2c7a70","En tránsito":"#2f6f8f","Arribado":"#3a6ea5","En despacho":"#c0662e","Nacionalizado":"#3a8f57","Entregado":"#2e7d32","Sin estado":"#8a9a97"}[e]||"#8a9a97";}
 function panelHTML(){
@@ -544,12 +551,21 @@ function renderBoard(){const el=document.getElementById('segBoard');if(!el)retur
  if(!S.seg.length){el.innerHTML=account?`<p class="muted">No hay embarques todavía. Usá “+ Nuevo embarque” o “Importar (CSV)”.</p>`:`<p class="note" style="border-color:#c0662e;background:#fdf6e3">🔒 No hay sesión iniciada. Los datos están en SharePoint — tocá <b>Iniciar sesión M365</b> (arriba) para verlos.</p>`;return;}
  const idxs=S.seg.map((r,ix)=>ix).filter(ix=>matchFilter(S.seg[ix]));
  if(!idxs.length){el.innerHTML=`<p class="muted">Ningún embarque coincide con el filtro.</p>`;return;}
- const groups={};idxs.forEach(ix=>{const e=S.seg[ix].estado||"Sin estado";(groups[e]=groups[e]||[]).push(ix);});
- let body="";ESTADOS.concat(["Sin estado"]).forEach(e=>{if(!groups[e])return;body+=`<div class="segh" style="border-color:${estadoColor(e)}">${e} <span class="muted">· ${groups[e].length}</span></div><div class="cards">`;groups[e].forEach(ix=>body+=card(ix));body+=`</div>`;});
+ const byPais={};idxs.forEach(ix=>{const p=S.seg[ix].pais||"Sin país";(byPais[p]=byPais[p]||[]).push(ix);});
+ const paisOrder=["Argentina","Perú"].filter(p=>byPais[p]).concat(Object.keys(byPais).filter(p=>!["Argentina","Perú"].includes(p)));
+ let body="";
+ paisOrder.forEach(p=>{
+  body+=`<div class="paish paish-${paisCls(p)}">${paisFlag(p)} ${p} <span class="paishn">· ${byPais[p].length} embarque${byPais[p].length!==1?'s':''}</span></div>`;
+  const groups={};byPais[p].forEach(ix=>{const e=S.seg[ix].estado||"Sin estado";(groups[e]=groups[e]||[]).push(ix);});
+  ESTADOS.concat(["Sin estado"]).forEach(e=>{if(!groups[e])return;body+=`<div class="segh" style="border-color:${estadoColor(e)}">${e} <span class="muted">· ${groups[e].length}</span></div><div class="cards">`;groups[e].forEach(ix=>body+=card(ix));body+=`</div>`;});
+ });
  el.innerHTML=body;if(segExpanded!=null)setTimeout(()=>loadCardDocs(segExpanded),0);}
 let segExpanded=null;
 function toggleExpand(ix){segExpanded=(segExpanded===ix)?null:ix;renderBoard();}
 function fmtD(d){return d?d.split('-').reverse().join('/'):'—';}
+function paisFlag(p){return p==='Perú'?'🇵🇪':p==='Argentina'?'🇦🇷':'🌐';}
+function paisCls(p){return p==='Perú'?'pe':p==='Argentina'?'ar':'x';}
+function paisTag(p){p=p||'';return `<span class="tag tag-${paisCls(p)}">${paisFlag(p)} ${p||'Sin país'}</span>`;}
 function card(ix){const r=S.seg[ix];const dias=diasETA(r.eta);const al=alerta(r);const pend=docsPend(r);
  const dcol=dias==null?"#eee":dias<0?"var(--red)":dias<=7?"var(--amber)":"var(--green)";
  const daysb=dias!=null?` <span class="daysb" style="background:${dcol}">${dias}d</span>`:'';
@@ -559,7 +575,7 @@ function card(ix){const r=S.seg[ix];const dias=diasETA(r.eta);const al=alerta(r)
   const g=(l,v)=>`<div><span class="exl">${l}</span>${v||'—'}</div>`;
   const pg=(r.pagos||[]).map(p=>`${p.pagado?'✅':'⬜'} ${p.concepto||''} ${p.monto?'USD '+money(num(p.monto)):''} ${p.fecha?'· vence '+fmtD(p.fecha):''}`).join('<br>');
   return `<div class="scard exp" style="border-left:5px solid ${col}">
-   <div class="sc-top" onclick="toggleExpand(${ix})" style="cursor:pointer"><b>${r.id||'(sin ID)'}</b> <span class="tag">${r.pais||''}</span> <span class="muted small">▲ cerrar</span></div>
+   <div class="sc-top" onclick="toggleExpand(${ix})" style="cursor:pointer"><b>${r.id||'(sin ID)'}</b> ${paisTag(r.pais)} <span class="muted small">▲ cerrar</span></div>
    <div class="sc-prod">${r.prod||''}</div>
    <div class="exgrid">
     ${g('Proveedor',r.prov)}${g('Origen',r.origen)}${g('Modo',r.modo)}${g('Incoterm',r.inco)}
@@ -577,7 +593,7 @@ function card(ix){const r=S.seg[ix];const dias=diasETA(r.eta);const al=alerta(r)
   </div>`;
  }
  return `<div class="scard" style="border-left:5px solid ${col}" onclick="toggleExpand(${ix})">
-  <div class="sc-top"><b>${r.id||'(sin ID)'}</b><span class="tag">${r.pais||''}</span></div>
+  <div class="sc-top"><b>${r.id||'(sin ID)'}</b>${paisTag(r.pais)}</div>
   <div class="sc-prod">${r.prod||''}</div>
   <div class="muted small">${[r.prov,r.origen,r.modo].filter(Boolean).join(' · ')}</div>
   <div class="sc-eta">ETA <b>${fmtD(r.eta)}</b>${daysb}</div>
