@@ -861,7 +861,7 @@ function seedPagos(){if(S.seededPagos)return;const map={};S.seg.forEach(r=>{if(m
 
 // ---------- Login M365 (MSAL) + sincronización SharePoint (Graph) ----------
 const MSAL_CFG={auth:{clientId:"73344446-c533-49e2-8bf1-6f23a9696d47",authority:"https://login.microsoftonline.com/27cfe214-f2f8-46f7-a731-282bcb32b2b3",redirectUri:"https://luminatec.github.io/herramienta-comex/"},cache:{cacheLocation:"localStorage"}};
-const GRAPH_SCOPES=["User.Read","Sites.ReadWrite.All"];
+const GRAPH_SCOPES=["User.Read","Sites.ReadWrite.All","Mail.Read"];
 const SP_HOST="luminatec.sharepoint.com",SP_SITE="/sites/Luminatec-Operacines",DATA_FILE="comex_data.json";
 let msalApp=null,account=null,cloudReady=false,siteId=null,pushTimer=null;
 function setSync(s,msg){const el=document.getElementById("syncbar");if(!el)return;const map={offline:["#8a9a97","Sin conectar"],connecting:["#c0662e","Conectando…"],loading:["#2f6f8f","Cargando datos…"],synced:["#3a8f57","Sincronizado ☁"],saving:["#c0662e","Guardando…"],error:["#9c0006","Error de sincronización"]};const p=map[s]||["#8a9a97",s];const who=account?("👤 "+(account.name||account.username)+" · "):"";const links=account?' · <a href="#" onclick="cloudReload();return false">Recargar</a> · <a href="#" onclick="logout();return false">Salir</a>':' <button class="mini" onclick="login()">Iniciar sesión M365</button>';el.innerHTML=who+'<b style="color:'+p[0]+'">'+(msg||p[1])+'</b>'+links;}
