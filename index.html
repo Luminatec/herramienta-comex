@@ -358,43 +358,42 @@ async function costearEmbarque(ix){
    else{const n=await autoFillFromFolder(ix,c);if(n){renderAR();renderPE();}else{setTimeout(()=>alert('Abrí el costeo de '+(r.id||'')+'. No encontré factura de PETDUR ni un Excel legible en su carpeta; cargá los ítems con "Importar factura", "Traer ítems de la carpeta" o a mano.'),150);}}
   }
  }catch(e){alert('Error al abrir el costeo: '+e.message);}}
-function verDetalle(ix){ix=+ix;const r=S.seg[ix];if(!r||!r.costeo||!r.costeo.items){alert('Este embarque todavía no tiene ítems cargados. Abrí "Costear" y traé la factura.');return;}
- const its=r.costeo.items.filter(i=>i.sku||i.desc||i.qty||i.fob);
+function detModal(html){const ov=document.createElement('div');ov.style="position:fixed;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;z-index:99";ov.innerHTML=`<div style="background:#fff;padding:16px;border-radius:8px;max-width:740px;width:94%;max-height:85vh;overflow:auto">${html}<div class="tools" style="justify-content:flex-end;margin-top:12px"><button class="sec" id="detClose">Cerrar</button></div></div>`;ov.addEventListener('click',e=>{if(e.target===ov)ov.remove();});document.body.appendChild(ov);const b=ov.querySelector('#detClose');if(b)b.onclick=()=>ov.remove();return ov;}
+async function verDetalle(ix){ix=+ix;const r=S.seg[ix];if(!r)return;
  const esc=s=>String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+ const head=`📋 Factura del proveedor — ${esc(r.id||'')}${r.prod?(' · '+esc(r.prod)):''}`;
+ if(!FSA||!fsGranted){detModal(`<h3 style="margin-top:0">${head}</h3><div class="note">Para leer la factura conectá la carpeta de documentos en Seguimiento (funciona desde la computadora).</div>`);return;}
+ const ov=detModal(`<h3 style="margin-top:0">${head}</h3><div class="muted">Leyendo la factura de la carpeta…</div>`);
+ let res=null;try{res=await findInvoiceItems(ix,'der');}catch(e){}
+ const box=ov.querySelector('div');if(!document.body.contains(ov))return;
+ const its=(res&&res.items)?res.items.filter(i=>i.sku||i.desc||i.qty||i.fob):[];
  let totQ=0,totF=0;
  const rows=its.map(i=>{const q=num(i.qty),f=num(i.fob),t=q*f;totQ+=q;totF+=t;return `<tr><td>${esc(i.sku)}</td><td>${esc(i.desc)}</td><td class="right">${q?money(q):''}</td><td class="right">${f?('USD '+money(f)):''}</td><td class="right">${t?('USD '+money(t)):''}</td></tr>`;}).join('');
- const ov=document.createElement('div');ov.style="position:fixed;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;z-index:99";
- ov.innerHTML=`<div style="background:#fff;padding:16px;border-radius:8px;max-width:720px;width:94%;max-height:85vh;overflow:auto">
-  <h3 style="margin-top:0">📋 Detalle de productos — ${esc(r.id||'')}${r.prod?(' · '+esc(r.prod)):''}</h3>
+ const body=its.length?`<div class="muted small" style="margin-bottom:6px">Fuente: ${esc(res.file||'factura en carpeta')}</div>
   <table><thead><tr><th>SKU</th><th>Descripción</th><th class="right">Cant.</th><th class="right">FOB unit.</th><th class="right">FOB total</th></tr></thead>
-  <tbody>${rows||'<tr><td colspan="5" class="muted">Sin ítems.</td></tr>'}</tbody>
-  <tfoot><tr><td colspan="2"><b>Total</b></td><td class="right"><b>${money(totQ)}</b></td><td></td><td class="right"><b>USD ${money(totF)}</b></td></tr></tfoot></table>
-  <div class="tools" style="justify-content:flex-end;margin-top:12px"><button class="sec" id="detClose">Cerrar</button></div></div>`;
- ov.addEventListener('click',e=>{if(e.target===ov)ov.remove();});
- document.body.appendChild(ov);const b=ov.querySelector('#detClose');if(b)b.onclick=()=>ov.remove();}
-async function autoFillFromFolder(ix,c){const r=S.seg[ix];const dk=c==='ar'?'der':'adv';const dh=await findSub(r.id);if(!dh)return 0;
+  <tbody>${rows}</tbody>
+  <tfoot><tr><td colspan="2"><b>Total</b></td><td class="right"><b>${money(totQ)}</b></td><td></td><td class="right"><b>USD ${money(totF)}</b></td></tr></tfoot></table>`
+  :`<div class="note">No encontré una factura legible en la carpeta de ${esc(r.id||'este embarque')}. Revisá que esté el PDF/Excel de la factura del proveedor en su carpeta.</div>`;
+ box.innerHTML=`<h3 style="margin-top:0">${head}</h3>${body}<div class="tools" style="justify-content:flex-end;margin-top:12px"><button class="sec" id="detClose">Cerrar</button></div>`;
+ const b=box.querySelector('#detClose');if(b)b.onclick=()=>ov.remove();}
+async function findInvoiceItems(ix,dk){const r=S.seg[ix];const dh=await findSub(r.id);if(!dh)return {items:[],file:null,noFolder:true};
  const prov=(r.prov||'').toLowerCase().replace(/[^a-z0-9]/g,'');
  const esProveedor=n=>{const sa=n.toLowerCase().replace(/[^a-z0-9]/g,'');return sa.includes('petdur')||(prov&&prov.length>2&&sa.includes(prov));};
  const score=n=>{n=n.toLowerCase();let s=0;if(/\bci\b|commercial|invoice|factura|proforma|\bpi\b/.test(n))s+=3;if(/fanttik|order|pedido/.test(n))s+=1;return s;};
- let all=[];try{for await(const [n,h] of dh.entries()){if(h.kind==='file'&&/\.(xlsx?|pdf)$/i.test(n)&&!/^~\$/.test(n))all.push([n,h]);}}catch(e){return 0;}
- const tryFiles=async list=>{for(const [n,h] of list){try{let best=[];
+ const esFlete=n=>/trice|flete|freight|forwarder|onboard/i.test(n);
+ let all=[];try{for await(const [n,h] of dh.entries()){if(h.kind==='file'&&/\.(xlsx?|pdf)$/i.test(n)&&!/^~\$/.test(n))all.push([n,h]);}}catch(e){return {items:[],file:null};}
+ const parse=async list=>{for(const [n,h] of list){try{let best=[];
    if(/\.pdf$/i.test(n)){const lines=await readPdfText(await h.getFile());best=detectItems(lines.map(l=>l.split(/\s{2,}/)),dk);if(!best.length)best=detectB2Box(lines,dk);if(!best.length)best=detectInvoiceLines(lines,dk);}
    else{if(typeof XLSX==='undefined')continue;const wb=XLSX.read(new Uint8Array(await (await h.getFile()).arrayBuffer()),{type:'array'});wb.SheetNames.forEach(sn=>{const it=detectItems(XLSX.utils.sheet_to_json(wb.Sheets[sn],{header:1,defval:''}),dk);if(it.length>best.length)best=it;});}
-   if(best.length){if(c==='ar')learnFillProd(best);S[c].items=best;save();setTimeout(()=>alert(best.length+' ítems traídos de "'+n+'".\nRevisá % de derecho (el IVA se autocompleta del maestro por SKU).'),80);return best.length;}
-  }catch(e){}}return 0;};
- const esFlete=n=>/trice|flete|freight|forwarder|onboard/i.test(n);
- // 1) facturas de PETDUR / proveedor por nombre (Excel antes que PDF)
+   if(best.length)return {items:best,file:n};
+  }catch(e){}}return null;};
  const prv=all.filter(f=>esProveedor(f[0])&&!esFlete(f[0])).sort((a,b)=>(/\.pdf$/i.test(a[0])?1:0)-(/\.pdf$/i.test(b[0])?1:0));
- let n=await tryFiles(prv);if(n)return n;
- // 2) archivos que parecen factura/proforma por nombre (ANTES que cualquier Excel interno)
  const inv=all.filter(f=>!esProveedor(f[0])&&!esFlete(f[0])&&score(f[0])>0).sort((a,b)=>score(b[0])-score(a[0]));
- n=await tryFiles(inv);if(n)return n;
- // 3) fallback: cualquier Excel de la carpeta (excepto el propio costeo y facturas de flete)
  const xls=all.filter(f=>/\.xlsx?$/i.test(f[0])&&!esProveedor(f[0])&&!esFlete(f[0])&&score(f[0])<=0&&!/coste|costo/i.test(f[0]));
- n=await tryFiles(xls);if(n)return n;
- // 4) fallback: PDFs restantes
  const pdfs=all.filter(f=>/\.pdf$/i.test(f[0])&&!esFlete(f[0])&&score(f[0])<=0);
- return await tryFiles(pdfs);}
+ for(const list of [prv,inv,xls,pdfs]){const res=await parse(list);if(res)return res;}
+ return {items:[],file:null};}
+async function autoFillFromFolder(ix,c){const dk=c==='ar'?'der':'adv';const res=await findInvoiceItems(ix,dk);const best=(res&&res.items)?res.items:[];if(!best.length)return 0;if(c==='ar')learnFillProd(best);S[c].items=best;save();setTimeout(()=>alert(best.length+' ítems traídos de "'+res.file+'".\nRevisá % de derecho (el IVA se autocompleta del maestro por SKU).'),80);return best.length;}
 function traerDeCarpeta(){if(!costeoCtx)return;if(!fsGranted){alert('Primero conectá la carpeta de documentos en Seguimiento.');return;}autoFillFromFolder(costeoCtx.ix,costeoCtx.c).then(n=>{if(n){renderAR();renderPE();}else alert('No pude leer automáticamente una factura de PETDUR (Excel o PDF de texto) en la carpeta. Podés usar "Importar factura" o cargar los ítems a mano.');});}
 function guardarCosteo(){if(!costeoCtx)return;const c=costeoCtx.c;const R=c==='ar'?computeAR():computePE();const r=S.seg[costeoCtx.ix];if(!r){costeoCtx=null;return;}r.costeo=structuredClone(S[c]);r.costEst=Math.round(R.landed*100)/100;save();renderSeg();alert('Costeo guardado en '+(r.id||'el embarque')+'.\nCosto estimado actualizado a USD '+money(R.landed));}
 function desvincular(){costeoCtx=null;renderAR();renderPE();}
@@ -624,7 +623,7 @@ function card(ix){const r=S.seg[ix];const dias=diasETA(r.eta);const al=alerta(r)
   ${pend.length?`<div class="pend">📋 Faltan ${pend.length}: ${pend.slice(0,2).map(d=>d[1]).join(', ')}${pend.length>2?'…':''}</div>`:''}
   ${r.docs?`<div class="tasknote">📝 Tarea: ${r.docs.length>80?r.docs.slice(0,80)+'…':r.docs}</div>`:''}
   ${al?`<div class="alertb">⚠ ${al}</div>`:''}
-  <div class="sc-cost">${r.costeo?'<span class="costed">✓ costeado</span>':''}${(r.costeo&&r.costeo.items&&r.costeo.items.length)?`<button class="mini sec" onclick="event.stopPropagation();verDetalle(${ix})">📋 Detalle</button>`:''}<button class="mini" onclick="event.stopPropagation();costearEmbarque(${ix})">💲 Costear</button></div>
+  <div class="sc-cost">${r.costeo?'<span class="costed">✓ costeado</span>':''}<button class="mini sec" onclick="event.stopPropagation();verDetalle(${ix})">📋 Detalle</button><button class="mini" onclick="event.stopPropagation();costearEmbarque(${ix})">💲 Costear</button></div>
  </div>`;
 }
 function newSeg(){S.seg.unshift({id:"",pais:"",prov:"",prod:"",origen:"",modo:"",inco:"",estado:"",fOrden:"",etd:"",eta:"",fOfic:"",fLib:"",docs:"",despa:"",notas:"",costEst:"",costReal:"",pagos:[]});save();renderSeg();openEdit(0);}
