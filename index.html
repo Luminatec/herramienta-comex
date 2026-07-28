@@ -819,8 +819,9 @@ let dirHandle=null, fsGranted=false;
 function idbDo(mode,fn){return new Promise((res,rej)=>{const o=indexedDB.open('comexfs',1);o.onupgradeneeded=()=>o.result.createObjectStore('kv');o.onsuccess=()=>{const db=o.result,tx=db.transaction('kv',mode),st=tx.objectStore('kv'),rq=fn(st);tx.oncomplete=()=>res(rq&&rq.result);tx.onerror=()=>rej(tx.error);};o.onerror=()=>rej(o.error);});}
 const idbSet=(k,v)=>idbDo('readwrite',st=>st.put(v,k));
 const idbGet=k=>idbDo('readonly',st=>st.get(k));
-async function restoreFolder(){if(!FSA)return;try{const h=await idbGet('dir');if(h){dirHandle=h;const p=await h.queryPermission({mode:'readwrite'});fsGranted=(p==='granted');}}catch(e){}renderSeg();}
-async function connectFolder(){if(!FSA)return;try{if(dirHandle){const p=await dirHandle.requestPermission({mode:'readwrite'});if(p==='granted'){fsGranted=true;renderSeg();return;}}dirHandle=await window.showDirectoryPicker({mode:'readwrite'});fsGranted=true;await idbSet('dir',dirHandle);renderSeg();}catch(e){}}
+async function dirWorks(h){try{for await(const _e of h.entries()){break;}return true;}catch(e){return false;}}
+async function restoreFolder(){if(!FSA)return;try{const h=await idbGet('dir');if(h){dirHandle=h;const p=await h.queryPermission({mode:'readwrite'});fsGranted=(p==='granted')&&await dirWorks(h);}}catch(e){}renderSeg();}
+async function connectFolder(){if(!FSA)return;try{if(dirHandle){const p=await dirHandle.requestPermission({mode:'readwrite'});if(p==='granted'&&await dirWorks(dirHandle)){fsGranted=true;renderSeg();return;}}dirHandle=await window.showDirectoryPicker({mode:'readwrite'});fsGranted=true;await idbSet('dir',dirHandle);renderSeg();}catch(e){}}
 async function findSub(id){if(!fsGranted||!dirHandle||!id)return null;
  try{return await dirHandle.getDirectoryHandle(id,{create:false});}catch(e){}
  try{for await(const [n,h] of dirHandle.entries()){if(h.kind==='directory'&&n!==id&&n.startsWith(id)&&!/\d/.test(n.charAt(id.length)))return h;}}catch(e){}
