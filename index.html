@@ -364,7 +364,7 @@ async function autoFillFromFolder(ix,c){const r=S.seg[ix];const dk=c==='ar'?'der
  const score=n=>{n=n.toLowerCase();let s=0;if(/\bci\b|commercial|invoice|factura|proforma|\bpi\b/.test(n))s+=3;if(/fanttik|order|pedido/.test(n))s+=1;return s;};
  let all=[];try{for await(const [n,h] of dh.entries()){if(h.kind==='file'&&/\.(xlsx?|pdf)$/i.test(n)&&!/^~\$/.test(n))all.push([n,h]);}}catch(e){return 0;}
  const tryFiles=async list=>{for(const [n,h] of list){try{let best=[];
-   if(/\.pdf$/i.test(n)){const lines=await readPdfText(await h.getFile());best=detectItems(lines.map(l=>l.split(/\s{2,}/)),dk);if(!best.length)best=detectB2Box(lines,dk);}
+   if(/\.pdf$/i.test(n)){const lines=await readPdfText(await h.getFile());best=detectItems(lines.map(l=>l.split(/\s{2,}/)),dk);if(!best.length)best=detectB2Box(lines,dk);if(!best.length)best=detectInvoiceLines(lines,dk);}
    else{if(typeof XLSX==='undefined')continue;const wb=XLSX.read(new Uint8Array(await (await h.getFile()).arrayBuffer()),{type:'array'});wb.SheetNames.forEach(sn=>{const it=detectItems(XLSX.utils.sheet_to_json(wb.Sheets[sn],{header:1,defval:''}),dk);if(it.length>best.length)best=it;});}
    if(best.length){if(c==='ar')learnFillProd(best);S[c].items=best;save();setTimeout(()=>alert(best.length+' ítems traídos de "'+n+'".\nRevisá % de derecho (el IVA se autocompleta del maestro por SKU).'),80);return best.length;}
   }catch(e){}}return 0;};
@@ -764,6 +764,16 @@ function detectB2Box(lines,dk){const items=[];let sku='',desc='';
   const amts=[...line.matchAll(/\$\s*([\d.,]+)/g)].map(m=>pnum(m[1])).filter(v=>isFinite(v)&&v>0);
   if(amts.length===2){const fob=amts[0],total=amts[1];if(fob>0&&total>=fob){const qty=Math.round(total/fob);if(qty>=1&&Math.abs(qty*fob-total)<=Math.max(1,total*0.03)){const it={sku:sku||'',desc:desc||'',qty:qty,fob:fob,ncm:''};it[dk]=0;items.push(it);sku='';desc='';}}}}
  return items;}
+function detectInvoiceLines(lines,dk){const items=[];const seen={};
+ const re=/^\s*(\d{8,14})\s+(.+?)\s+(\d[\d.,]*)\s+(\d[\d.,]*)\s+(\d[\d.,]*)\s*$/;
+ for(const raw of (lines||[])){const line=(raw||'').replace(/\s+/g,' ').trim();if(!line)continue;
+  const m=line.match(re);if(!m)continue;
+  const ean=m[1],desc=m[2].trim(),qty=pnum(m[3]),unit=pnum(m[4]),amt=pnum(m[5]);
+  if(!isFinite(qty)||!isFinite(unit)||!isFinite(amt)||qty<=0||unit<=0)continue;
+  if(Math.abs(qty*unit-amt)>Math.max(1,amt*0.03))continue;
+  if(seen[ean])continue;seen[ean]=1;
+  const it={sku:ean,desc:desc,qty:qty,fob:unit,ncm:''};it[dk]=0;items.push(it);}
+ return items;}
 function learnFillProd(items){if(!S.ivaMaster)S.ivaMaster={};if(!S.derMaster)S.derMaster={};if(!S.ncmMaster)S.ncmMaster={};if(!S.descMaster)S.descMaster={};
  items.forEach(it=>{const k=(it.sku||'').trim();if(!k)return;
   const iv=num(it.ivaR);if(it.ivaR!=null&&it.ivaR!==''&&iv>0)S.ivaMaster[k]=iv;else if(S.ivaMaster[k]!=null)it.ivaR=S.ivaMaster[k];
@@ -780,7 +790,7 @@ function applyItems(c,items){
 }
 function loadRows(c,rows){const dk=c==='ar'?'der':'adv';const items=detectItems(rows,dk);if(!items.length){alert('No pude detectar las columnas de Cantidad y Precio unitario. Descargá la "Plantilla" y pegá los datos con ese formato.');return;}applyItems(c,items);}
 async function readPdfText(blob){if(typeof pdfjsLib==='undefined')throw new Error('El lector de PDF no cargó (requiere internet la primera vez que abrís la app).');const buf=await blob.arrayBuffer();const pdf=await pdfjsLib.getDocument({data:buf}).promise;const lines=[];for(let p=1;p<=pdf.numPages;p++){const page=await pdf.getPage(p);const tc=await page.getTextContent();const byY={};tc.items.forEach(it=>{if(!it.str||!it.str.trim())return;const y=Math.round(it.transform[5]);(byY[y]=byY[y]||[]).push([it.transform[4],it.str]);});Object.keys(byY).map(Number).sort((a,b)=>b-a).forEach(y=>{lines.push(byY[y].sort((a,b)=>a[0]-b[0]).map(x=>x[1]).join('  '));});}return lines;}
-async function processPdf(c,blob){let lines;try{lines=await readPdfText(blob);}catch(e){alert(e.message);return;}const dk=c==='ar'?'der':'adv';const rows=lines.map(l=>l.split(/\s{2,}/).map(x=>x.trim()));let items=detectItems(rows,dk);if(!items.length)items=detectB2Box(lines,dk);if(items.length){applyItems(c,items);}else{showPaste(c,lines.join('\n'));setTimeout(()=>alert('No pude estructurar el PDF automáticamente. Te dejo el texto extraído para que lo revises y pegues (columnas: SKU, Descripción, Cantidad, FOB unitario).'),120);}}
+async function processPdf(c,blob){let lines;try{lines=await readPdfText(blob);}catch(e){alert(e.message);return;}const dk=c==='ar'?'der':'adv';const rows=lines.map(l=>l.split(/\s{2,}/).map(x=>x.trim()));let items=detectItems(rows,dk);if(!items.length)items=detectB2Box(lines,dk);if(!items.length)items=detectInvoiceLines(lines,dk);if(items.length){applyItems(c,items);}else{showPaste(c,lines.join('\n'));setTimeout(()=>alert('No pude estructurar el PDF automáticamente. Te dejo el texto extraído para que lo revises y pegues (columnas: SKU, Descripción, Cantidad, FOB unitario).'),120);}}
 function showPaste(c,prefill){const ov=document.createElement('div');ov.style="position:fixed;inset:0;background:rgba(0,0,0,.4);display:flex;align-items:center;justify-content:center;z-index:99";
  ov.innerHTML=`<div style="background:#fff;padding:16px;border-radius:8px;max-width:560px;width:90%">
   <h3>Pegar filas de la factura</h3>
