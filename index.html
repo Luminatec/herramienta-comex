@@ -786,8 +786,10 @@ function detectInvoiceLines(lines,dk){const items=[];const seen={};
     const skm=d.match(/^[A-Za-z0-9][A-Za-z0-9\-.]*/);const it={sku:skm?skm[0]:'',desc:d,qty:qty,fob:unit,ncm:''};it[dk]=0;items.push(it);}}
  }
  return items;}
-function learnFillProd(items){if(!S.ivaMaster)S.ivaMaster={};if(!S.derMaster)S.derMaster={};if(!S.ncmMaster)S.ncmMaster={};if(!S.descMaster)S.descMaster={};
- items.forEach(it=>{const k=(it.sku||'').trim();if(!k)return;
+function normCode(x){const s=String(x||'').replace(/\D/g,'');return s.replace(/^0+/,'')||s;}
+function resolveSku(code){if(!code)return '';const raw=String(code).trim();const A=S.aliasMap||{};if(A[raw])return A[raw];const u=raw.toUpperCase();if(A[u])return A[u];const n=normCode(raw);if(n&&n.length>=6&&A[n])return A[n];return raw;}
+function learnFillProd(items){if(!S.ivaMaster)S.ivaMaster={};if(!S.derMaster)S.derMaster={};if(!S.ncmMaster)S.ncmMaster={};if(!S.descMaster)S.descMaster={};if(!S.aliasMap)S.aliasMap={};
+ items.forEach(it=>{let k=(it.sku||'').trim();if(!k)return;const rk=resolveSku(k);if(rk&&rk!==k){k=rk;it.sku=rk;}
   const iv=num(it.ivaR);if(it.ivaR!=null&&it.ivaR!==''&&iv>0)S.ivaMaster[k]=iv;else if(S.ivaMaster[k]!=null)it.ivaR=S.ivaMaster[k];
   const dv=num(it.der);if(dv>0)S.derMaster[k]=dv;else if(S.derMaster[k]!=null)it.der=S.derMaster[k];
   const nc=(it.ncm==null?'':String(it.ncm)).trim();if(nc)S.ncmMaster[k]=nc;else if(S.ncmMaster[k]!=null)it.ncm=S.ncmMaster[k];
@@ -862,7 +864,7 @@ function renderResumen(){const seg=S.seg.filter(resMatch);const activos=seg.filt
 function maestroSKUs(){const s=new Set([...Object.keys(S.ivaMaster||{}),...Object.keys(S.derMaster||{}),...Object.keys(S.ncmMaster||{}),...Object.keys(S.descMaster||{})]);return [...s].sort();}
 function renderMaestro(){const rows=maestroSKUs().map(sk=>`<tr><td><b>${sk}</b></td><td><input class="in" style="width:220px" value="${((S.descMaster||{})[sk]||'').replace(/"/g,'&quot;')}" onchange="setMaestro('${sk}','desc',this.value)"></td><td><input class="in" style="width:120px" value="${(S.ncmMaster||{})[sk]||''}" onchange="setMaestro('${sk}','ncm',this.value)"></td><td><input class="in" style="width:80px" value="${(S.derMaster||{})[sk]!=null?(S.derMaster[sk]*100):''}" onchange="setMaestro('${sk}','der',this.value)"></td><td><input class="in" style="width:80px" value="${(S.ivaMaster||{})[sk]!=null?(S.ivaMaster[sk]*100):''}" onchange="setMaestro('${sk}','iva',this.value)"></td><td><button class="mini sec" onclick="delMaestro('${sk}')">✕</button></td></tr>`).join('');
  document.getElementById('tab-maestro').innerHTML=`<h2>Maestro de productos (Argentina)</h2>
-  <div class="tools"><button onclick="addMaestro()">+ Agregar SKU</button><button class="sec" onclick="document.getElementById('imp-mae').click()">⇪ Importar (Excel/CSV)</button><input type="file" id="imp-mae" style="display:none" accept=".xlsx,.xls,.csv" onchange="importMaestro(event)"><button class="sec" onclick="exportMaestro()">⬇ Exportar</button></div>
+  <div class="tools"><button onclick="addMaestro()">+ Agregar SKU</button><button class="sec" onclick="document.getElementById('imp-mae').click()">⇪ Importar (Excel/CSV)</button><input type="file" id="imp-mae" style="display:none" accept=".xlsx,.xls,.csv" onchange="importMaestro(event)"><button class="sec" onclick="exportMaestro()">⬇ Exportar</button><button class="sec" onclick="document.getElementById('imp-alias').click()" title="Mapa código de factura (EAN / código proveedor) → SKU interno">⇪ Importar códigos/EAN</button><input type="file" id="imp-alias" style="display:none" accept=".xlsx,.xls,.csv" onchange="importAlias(event)"></div>
   <table><thead><tr><th>SKU</th><th>Descripción</th><th>NCM / Partida</th><th>Derecho %</th><th>IVA %</th><th></th></tr></thead><tbody>${rows||'<tr><td colspan="6" class="muted">Sin productos aún. Se completa solo al importar facturas, o cargá acá / importá una lista.</td></tr>'}</tbody></table>
   <div class="note">Estos valores se autocompletan en el costeo de Argentina cuando el SKU coincide, y se aprenden al importar facturas o editar un ítem. El IVA y la NCM casi no cambian; el derecho puede variar por reclasificación. Se guarda en el respaldo (Exportar/Importar).</div>`;}
 function setMaestro(sk,f,v){if(f==='desc'){S.descMaster=S.descMaster||{};if(String(v).trim())S.descMaster[sk]=String(v).trim();else delete S.descMaster[sk];save();return;}if(f==='ncm'){S.ncmMaster=S.ncmMaster||{};if(String(v).trim())S.ncmMaster[sk]=String(v).trim();else delete S.ncmMaster[sk];}else if(f==='der'){S.derMaster=S.derMaster||{};const n=num(v)/100;if(n>0)S.derMaster[sk]=n;else delete S.derMaster[sk];}else{S.ivaMaster=S.ivaMaster||{};const n=num(v)/100;if(n>0)S.ivaMaster[sk]=n;else delete S.ivaMaster[sk];}save();}
@@ -874,6 +876,15 @@ function importMaestro(e){const f=e.target.files[0];if(!f)return;
   save();renderMaestro();setTimeout(()=>alert(n+' productos cargados/actualizados en el maestro.'),50);};
  const nm=f.name.toLowerCase();
  if(nm.endsWith('.xlsx')||nm.endsWith('.xls')){if(typeof XLSX==='undefined'){alert('Excel requiere internet la primera vez; probá con CSV.');e.target.value='';return;}const r=new FileReader();r.onload=()=>{try{const wb=XLSX.read(new Uint8Array(r.result),{type:'array'});done(XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]],{header:1,defval:''}));}catch(x){alert('No pude leer el Excel: '+x.message);}};r.readAsArrayBuffer(f);}
+ else{const r=new FileReader();r.onload=()=>done(parseCSV(r.result));r.readAsText(f);}
+ e.target.value='';}
+function importAlias(e){const f=e.target.files[0];if(!f)return;
+ const done=rows=>{if(!rows||rows.length<1){alert('Sin filas.');return;}S.aliasMap=S.aliasMap||{};const isSku=v=>/^L[A-Z]{2,}\d{2,}$/i.test(String(v||'').trim());let n=0;
+  rows.forEach(row=>{if(!row)return;let sku='',codes=[];row.forEach(c=>{const v=String(c==null?'':c).trim();if(!v)return;if(isSku(v)&&!sku)sku=v.toUpperCase();else codes.push(v);});
+   if(sku){codes.forEach(c=>{const nc=normCode(c);const key=(nc&&nc.length>=6)?nc:c.toUpperCase();if(key){S.aliasMap[key]=sku;n++;}});}});
+  save();setTimeout(()=>alert(n+' códigos mapeados a SKU interno. El costeo ahora resuelve EAN/código de proveedor contra el Maestro.'),50);};
+ const nm=f.name.toLowerCase();
+ if(nm.endsWith('.xlsx')||nm.endsWith('.xls')){if(typeof XLSX==='undefined'){alert('Excel requiere internet la primera vez; probá con CSV.');e.target.value='';return;}const r=new FileReader();r.onload=()=>{try{const wb=XLSX.read(new Uint8Array(r.result),{type:'array'});let all=[];wb.SheetNames.forEach(sn=>{all=all.concat(XLSX.utils.sheet_to_json(wb.Sheets[sn],{header:1,defval:''}));});done(all);}catch(x){alert('No pude leer el Excel: '+x.message);}};r.readAsArrayBuffer(f);}
  else{const r=new FileReader();r.onload=()=>done(parseCSV(r.result));r.readAsText(f);}
  e.target.value='';}
 function exportMaestro(){const aoa=[['SKU','Descripción','NCM','Derecho %','IVA %']];maestroSKUs().forEach(sk=>aoa.push([sk,(S.descMaster||{})[sk]||'',(S.ncmMaster||{})[sk]||'',(S.derMaster||{})[sk]!=null?S.derMaster[sk]*100:'',(S.ivaMaster||{})[sk]!=null?S.ivaMaster[sk]*100:'']));
