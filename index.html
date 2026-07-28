@@ -790,10 +790,11 @@ function normCode(x){const s=String(x||'').replace(/\D/g,'');return s.replace(/^
 function resolveSku(code){if(!code)return '';const raw=String(code).trim();const A=S.aliasMap||{};const cand=[raw,raw.toUpperCase()];const n=normCode(raw);if(n&&n.length>=6)cand.push(n);const tok=raw.split(/\s+/)[0];if(tok&&tok!==raw){cand.push(tok,tok.toUpperCase());const tn=normCode(tok);if(tn&&tn.length>=6)cand.push(tn);}for(const t of cand){if(t&&A[t])return A[t];}return raw;}
 function learnFillProd(items){if(!S.ivaMaster)S.ivaMaster={};if(!S.derMaster)S.derMaster={};if(!S.ncmMaster)S.ncmMaster={};if(!S.descMaster)S.descMaster={};if(!S.aliasMap)S.aliasMap={};
  items.forEach(it=>{let k=(it.sku||'').trim();if(!k)return;const rk=resolveSku(k);if(rk&&rk!==k){k=rk;it.sku=rk;}
-  const iv=num(it.ivaR);if(it.ivaR!=null&&it.ivaR!==''&&iv>0)S.ivaMaster[k]=iv;else if(S.ivaMaster[k]!=null)it.ivaR=S.ivaMaster[k];
-  const dv=num(it.der);if(dv>0)S.derMaster[k]=dv;else if(S.derMaster[k]!=null)it.der=S.derMaster[k];
-  const nc=(it.ncm==null?'':String(it.ncm)).trim();if(nc)S.ncmMaster[k]=nc;else if(S.ncmMaster[k]!=null)it.ncm=S.ncmMaster[k];
-  const ds=(it.desc||'').trim();if(ds)S.descMaster[k]=ds;else if(S.descMaster[k])it.desc=S.descMaster[k];});
+  const canW=!/\s/.test(k); // solo aprende en el Maestro si el SKU es limpio (evita basura tipo "G03 SILLAS GAMER")
+  const iv=num(it.ivaR);if(canW&&it.ivaR!=null&&it.ivaR!==''&&iv>0)S.ivaMaster[k]=iv;else if(S.ivaMaster[k]!=null)it.ivaR=S.ivaMaster[k];
+  const dv=num(it.der);if(canW&&dv>0)S.derMaster[k]=dv;else if(S.derMaster[k]!=null)it.der=S.derMaster[k];
+  const nc=(it.ncm==null?'':String(it.ncm)).trim();if(canW&&nc)S.ncmMaster[k]=nc;else if(S.ncmMaster[k]!=null)it.ncm=S.ncmMaster[k];
+  const ds=(it.desc||'').trim();if(canW&&ds&&!S.descMaster[k])S.descMaster[k]=ds;else if(S.descMaster[k])it.desc=S.descMaster[k];});
  save();}
 function applyItems(c,items){
  if(c==='ar')learnFillProd(items);
