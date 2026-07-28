@@ -765,14 +765,21 @@ function detectB2Box(lines,dk){const items=[];let sku='',desc='';
   if(amts.length===2){const fob=amts[0],total=amts[1];if(fob>0&&total>=fob){const qty=Math.round(total/fob);if(qty>=1&&Math.abs(qty*fob-total)<=Math.max(1,total*0.03)){const it={sku:sku||'',desc:desc||'',qty:qty,fob:fob,ncm:''};it[dk]=0;items.push(it);sku='';desc='';}}}}
  return items;}
 function detectInvoiceLines(lines,dk){const items=[];const seen={};
- const re=/^\s*(\d{8,14})\s+(.+?)\s+(\d[\d.,]*)\s+(\d[\d.,]*)\s+(\d[\d.,]*)\s*$/;
+ const reA=/^\s*(\d{8,14})\s+(.+?)\s+(\d[\d.,]*)\s+(\d[\d.,]*)\s+(\d[\d.,]*)\s*$/;
+ const reB=/^\s*u\s*\d+\s+([\d.]+,\d{3,5})\s+([\d.]+,\d{3,5})\s+([\d.]+,\d{2})(\D.+)$/i;
  for(const raw of (lines||[])){const line=(raw||'').replace(/\s+/g,' ').trim();if(!line)continue;
-  const m=line.match(re);if(!m)continue;
-  const ean=m[1],desc=m[2].trim(),qty=pnum(m[3]),unit=pnum(m[4]),amt=pnum(m[5]);
-  if(!isFinite(qty)||!isFinite(unit)||!isFinite(amt)||qty<=0||unit<=0)continue;
-  if(Math.abs(qty*unit-amt)>Math.max(1,amt*0.03))continue;
-  if(seen[ean])continue;seen[ean]=1;
-  const it={sku:ean,desc:desc,qty:qty,fob:unit,ncm:''};it[dk]=0;items.push(it);}
+  // Formato A: factura tipo CI (EAN al inicio + qty + unit + amount)
+  let m=line.match(reA);
+  if(m){const ean=m[1],desc=m[2].trim(),qty=pnum(m[3]),unit=pnum(m[4]),amt=pnum(m[5]);
+   if(isFinite(qty)&&isFinite(unit)&&isFinite(amt)&&qty>0&&unit>0&&Math.abs(qty*unit-amt)<=Math.max(1,amt*0.03)&&!seen[ean]){seen[ean]=1;const it={sku:ean,desc:desc,qty:qty,fob:unit,ncm:''};it[dk]=0;items.push(it);continue;}}
+  // Formato B: proforma/e-Ticket Petdur Uruguay (u<n> cant precio monto<COD desc>, coma decimal)
+  m=line.match(reB);
+  if(m){const qty=pnum(m[1]),unit=pnum(m[2]),amt=pnum(m[3]);let d=(m[4]||'').replace(/\s+/g,' ').trim();
+   const hl=Math.floor(d.length/2);if(d.length%2===0&&d.slice(hl)===d.slice(0,hl))d=d.slice(0,hl).trim();
+   if(/flete|gasto/i.test(d))continue;
+   if(isFinite(qty)&&isFinite(unit)&&isFinite(amt)&&qty>0&&unit>0&&Math.abs(qty*unit-amt)<=Math.max(1,amt*0.05)){
+    const skm=d.match(/^[A-Za-z0-9][A-Za-z0-9\-.]*/);const it={sku:skm?skm[0]:'',desc:d,qty:qty,fob:unit,ncm:''};it[dk]=0;items.push(it);}}
+ }
  return items;}
 function learnFillProd(items){if(!S.ivaMaster)S.ivaMaster={};if(!S.derMaster)S.derMaster={};if(!S.ncmMaster)S.ncmMaster={};if(!S.descMaster)S.descMaster={};
  items.forEach(it=>{const k=(it.sku||'').trim();if(!k)return;
