@@ -358,6 +358,20 @@ async function costearEmbarque(ix){
    else{const n=await autoFillFromFolder(ix,c);if(n){renderAR();renderPE();}else{setTimeout(()=>alert('Abrí el costeo de '+(r.id||'')+'. No encontré factura de PETDUR ni un Excel legible en su carpeta; cargá los ítems con "Importar factura", "Traer ítems de la carpeta" o a mano.'),150);}}
   }
  }catch(e){alert('Error al abrir el costeo: '+e.message);}}
+function verDetalle(ix){ix=+ix;const r=S.seg[ix];if(!r||!r.costeo||!r.costeo.items){alert('Este embarque todavía no tiene ítems cargados. Abrí "Costear" y traé la factura.');return;}
+ const its=r.costeo.items.filter(i=>i.sku||i.desc||i.qty||i.fob);
+ const esc=s=>String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+ let totQ=0,totF=0;
+ const rows=its.map(i=>{const q=num(i.qty),f=num(i.fob),t=q*f;totQ+=q;totF+=t;return `<tr><td>${esc(i.sku)}</td><td>${esc(i.desc)}</td><td class="right">${q?money(q):''}</td><td class="right">${f?('USD '+money(f)):''}</td><td class="right">${t?('USD '+money(t)):''}</td></tr>`;}).join('');
+ const ov=document.createElement('div');ov.style="position:fixed;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;z-index:99";
+ ov.innerHTML=`<div style="background:#fff;padding:16px;border-radius:8px;max-width:720px;width:94%;max-height:85vh;overflow:auto">
+  <h3 style="margin-top:0">📋 Detalle de productos — ${esc(r.id||'')}${r.prod?(' · '+esc(r.prod)):''}</h3>
+  <table><thead><tr><th>SKU</th><th>Descripción</th><th class="right">Cant.</th><th class="right">FOB unit.</th><th class="right">FOB total</th></tr></thead>
+  <tbody>${rows||'<tr><td colspan="5" class="muted">Sin ítems.</td></tr>'}</tbody>
+  <tfoot><tr><td colspan="2"><b>Total</b></td><td class="right"><b>${money(totQ)}</b></td><td></td><td class="right"><b>USD ${money(totF)}</b></td></tr></tfoot></table>
+  <div class="tools" style="justify-content:flex-end;margin-top:12px"><button class="sec" id="detClose">Cerrar</button></div></div>`;
+ ov.addEventListener('click',e=>{if(e.target===ov)ov.remove();});
+ document.body.appendChild(ov);const b=ov.querySelector('#detClose');if(b)b.onclick=()=>ov.remove();}
 async function autoFillFromFolder(ix,c){const r=S.seg[ix];const dk=c==='ar'?'der':'adv';const dh=await findSub(r.id);if(!dh)return 0;
  const prov=(r.prov||'').toLowerCase().replace(/[^a-z0-9]/g,'');
  const esProveedor=n=>{const sa=n.toLowerCase().replace(/[^a-z0-9]/g,'');return sa.includes('petdur')||(prov&&prov.length>2&&sa.includes(prov));};
@@ -610,7 +624,7 @@ function card(ix){const r=S.seg[ix];const dias=diasETA(r.eta);const al=alerta(r)
   ${pend.length?`<div class="pend">📋 Faltan ${pend.length}: ${pend.slice(0,2).map(d=>d[1]).join(', ')}${pend.length>2?'…':''}</div>`:''}
   ${r.docs?`<div class="tasknote">📝 Tarea: ${r.docs.length>80?r.docs.slice(0,80)+'…':r.docs}</div>`:''}
   ${al?`<div class="alertb">⚠ ${al}</div>`:''}
-  <div class="sc-cost">${r.costeo?'<span class="costed">✓ costeado</span>':''}<button class="mini" onclick="event.stopPropagation();costearEmbarque(${ix})">💲 Costear</button></div>
+  <div class="sc-cost">${r.costeo?'<span class="costed">✓ costeado</span>':''}${(r.costeo&&r.costeo.items&&r.costeo.items.length)?`<button class="mini sec" onclick="event.stopPropagation();verDetalle(${ix})">📋 Detalle</button>`:''}<button class="mini" onclick="event.stopPropagation();costearEmbarque(${ix})">💲 Costear</button></div>
  </div>`;
 }
 function newSeg(){S.seg.unshift({id:"",pais:"",prov:"",prod:"",origen:"",modo:"",inco:"",estado:"",fOrden:"",etd:"",eta:"",fOfic:"",fLib:"",docs:"",despa:"",notas:"",costEst:"",costReal:"",pagos:[]});save();renderSeg();openEdit(0);}
