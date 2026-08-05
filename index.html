@@ -359,6 +359,36 @@ async function costearEmbarque(ix){
   }
  }catch(e){alert('Error al abrir el costeo: '+e.message);}}
 function detModal(html){const ov=document.createElement('div');ov.style="position:fixed;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;z-index:99";ov.innerHTML=`<div style="background:#fff;padding:16px;border-radius:8px;max-width:740px;width:94%;max-height:85vh;overflow:auto">${html}<div class="tools" style="justify-content:flex-end;margin-top:12px"><button class="sec" id="detClose">Cerrar</button></div></div>`;ov.addEventListener('click',e=>{if(e.target===ov)ov.remove();});document.body.appendChild(ov);const b=ov.querySelector('#detClose');if(b)b.onclick=()=>ov.remove();return ov;}
+function parseMoneyToken(t){t=String(t).replace(/[^\d.,]/g,'');if(!t)return null;const c=t.lastIndexOf(','),d=t.lastIndexOf('.');let n;if(c>d)n=parseFloat(t.replace(/\./g,'').replace(',','.'));else n=parseFloat(t.replace(/,/g,''));return isFinite(n)?n:null;}
+async function traerCostoReal(ix){ix=+ix;const r=S.seg[ix];if(!r)return;
+ const esc=s=>String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+ const head=`💵 Costo real desde la liquidación — ${esc(r.id||'')}`;
+ if(!FSA||!fsGranted){detModal(`<h3 style="margin-top:0">${head}</h3><div class="note">Conectá la carpeta de documentos en Seguimiento (desde la computadora) para leer la liquidación.</div>`);return;}
+ const ov=detModal(`<h3 style="margin-top:0">${head}</h3><div class="muted">Leyendo la liquidación de la carpeta…</div>`);
+ const box=ov.querySelector('div');const tc=num((r.pais==='Perú'?S.pe:S.ar).tc)||0;
+ let cands=[],filesRead=[];
+ try{const dh=await findSub(r.id);
+  if(dh){let pdfs=[];for await(const [n,h] of dh.entries()){if(h.kind==='file'&&/\.pdf$/i.test(n))pdfs.push([n,h]);}
+   const pri=pdfs.filter(x=>/liquid|gasto|honorar|hoja.*costo|final|costos|boleta/i.test(x[0]));
+   const use=(pri.length?pri:pdfs).slice(0,8);
+   for(const [n,h] of use){let lines=[];try{lines=await readPdfText(await h.getFile());}catch(e){continue;}filesRead.push(n);
+    lines.forEach(L=>{const isUsd=/u\$s|us\$|usd|d[oó]lar/i.test(L);const m=L.match(/\d[\d.,]{3,}/g);if(!m)return;m.forEach(tok=>{const v=parseMoneyToken(tok);if(v!=null&&v>=100)cands.push({v,cur:isUsd?'USD':'ARS',file:n});});});}
+  }
+ }catch(e){}
+ if(!document.body.contains(ov))return;
+ const seen={},uniq=[];cands.sort((a,b)=>b.v-a.v).forEach(c=>{const k=c.cur+Math.round(c.v);if(!seen[k]){seen[k]=1;uniq.push(c);}});
+ const top=uniq.slice(0,7);const prov=r.costEst?('USD '+money(num(r.costEst))):'—';
+ const rowsH=top.length?top.map(c=>{const usd=c.cur==='USD'?c.v:(tc?c.v/tc:0);return `<div class="tlrow"><button class="mini crUse" data-usd="${usd.toFixed(2)}" ${(!usd)?'disabled':''}>Usar u$s ${usd?money(usd):'—'}</button> <span class="muted small">${c.cur==='ARS'?('$ '+money(c.v)+(tc?(' ÷ '+money(tc)):' (falta TC)')):('u$s '+money(c.v))} · ${esc(c.file)}</span></div>`;}).join(''):`<div class="note">No encontré montos en ${filesRead.length?esc(filesRead.join(', ')):'la carpeta'}. Cargalo a mano abajo.</div>`;
+ box.innerHTML=`<h3 style="margin-top:0">${head}</h3>
+  <div class="muted small">Provisorio: <b>${prov}</b>${tc?(' · TC '+money(tc)):' · <b style="color:#c0662e">cargá el TC en Parámetros para convertir pesos</b>'}</div>
+  <div class="muted small" style="margin:6px 0">Elegí el TOTAL de la liquidación (montos más grandes primero). Si es en pesos, lo paso a USD con el TC.</div>
+  ${rowsH}
+  <div class="tools" style="margin-top:10px;gap:6px;align-items:center;flex-wrap:wrap">o a mano (USD): <input id="crIn" class="in" style="width:120px" inputmode="decimal"> <button class="mini" id="crSave">Guardar</button><button class="sec" id="crClose" style="margin-left:auto">Cerrar</button></div>`;
+ const apply=v=>{const val=num(v);if(!val){alert('Poné un número válido.');return;}r.costReal=val;save();renderSeg();ov.remove();const d=num(r.costEst)?(((val-num(r.costEst))/num(r.costEst))*100):null;alert('Costo real de '+(r.id||'')+': USD '+money(val)+(d!=null?('\nDesvío vs provisorio: '+(d>=0?'+':'')+d.toFixed(1)+'%'):''));};
+ box.querySelectorAll('.crUse').forEach(b=>b.onclick=()=>apply(b.getAttribute('data-usd')));
+ const sv=box.querySelector('#crSave');if(sv)sv.onclick=()=>apply(document.getElementById('crIn').value);
+ const cl=box.querySelector('#crClose');if(cl)cl.onclick=()=>ov.remove();
+}
 async function verDetalle(ix){ix=+ix;const r=S.seg[ix];if(!r)return;
  const esc=s=>String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
  const head=`📋 Factura del proveedor — ${esc(r.id||'')}${r.prod?(' · '+esc(r.prod)):''}`;
@@ -620,7 +650,7 @@ function card(ix){const r=S.seg[ix];const dias=diasETA(r.eta);const al=alerta(r)
    ${r.notas?`<div class="exsec"><span class="exl">Notas</span>${r.notas}</div>`:''}
    ${(r.pagos&&r.pagos.length)?`<div class="exsec"><span class="exl">Pagos (saldo USD ${money(pagosInfo(r).saldo)})</span>${pg}</div>`:''}
    ${al?`<div class="alertb">⚠ ${al}</div>`:''}
-   <div class="tools" style="margin-top:8px"><button class="mini" onclick="costearEmbarque(${ix})">💲 Costear</button><button class="mini" onclick="openEdit(${ix})">✎ Editar</button><button class="mini sec" onclick="printEmbarque(${ix})">🖨 PDF</button><button class="mini sec" onclick="toggleExpand(${ix})">Cerrar</button></div>
+   <div class="tools" style="margin-top:8px"><button class="mini" onclick="costearEmbarque(${ix})">💲 Costear</button><button class="mini sec" onclick="traerCostoReal(${ix})">💵 Costo real</button><button class="mini" onclick="openEdit(${ix})">✎ Editar</button><button class="mini sec" onclick="printEmbarque(${ix})">🖨 PDF</button><button class="mini sec" onclick="toggleExpand(${ix})">Cerrar</button></div>
   </div>`;
  }
  return `<div class="scard" style="border-left:5px solid ${col}" onclick="toggleExpand(${ix})">
