@@ -572,11 +572,23 @@ function renderBoard(){const el=document.getElementById('segBoard');if(!el)retur
  if(!idxs.length){el.innerHTML=`<p class="muted">Ningún embarque coincide con el filtro.</p>`;return;}
  const byPais={};idxs.forEach(ix=>{const p=S.seg[ix].pais||"Sin país";(byPais[p]=byPais[p]||[]).push(ix);});
  const paisOrder=["Argentina","Perú"].filter(p=>byPais[p]).concat(Object.keys(byPais).filter(p=>!["Argentina","Perú"].includes(p)));
+ const openDone=segFilter.estado==='Entregado';
  let body="";
  paisOrder.forEach(p=>{
-  body+=`<div class="paish paish-${paisCls(p)}">${paisFlag(p)} ${p} <span class="paishn">· ${byPais[p].length} embarque${byPais[p].length!==1?'s':''}</span></div>`;
-  const groups={};byPais[p].forEach(ix=>{const e=S.seg[ix].estado||"Sin estado";(groups[e]=groups[e]||[]).push(ix);});
-  ESTADOS.concat(["Sin estado"]).forEach(e=>{if(!groups[e])return;body+=`<div class="segh" style="border-color:${estadoColor(e)}">${e} <span class="muted">· ${groups[e].length}</span></div><div class="cards">`;groups[e].forEach(ix=>body+=card(ix));body+=`</div>`;});
+  const all=byPais[p];
+  const act=all.filter(ix=>S.seg[ix].estado!=="Entregado");
+  const done=all.filter(ix=>S.seg[ix].estado==="Entregado");
+  body+=`<div class="paish paish-${paisCls(p)}">${paisFlag(p)} ${p} <span class="paishn">· ${act.length} activo${act.length!==1?'s':''}</span></div>`;
+  const groups={};act.forEach(ix=>{const e=S.seg[ix].estado||"Sin estado";(groups[e]=groups[e]||[]).push(ix);});
+  ESTADOS.concat(["Sin estado"]).forEach(e=>{if(e==="Entregado"||!groups[e])return;body+=`<div class="segh" style="border-color:${estadoColor(e)}">${e} <span class="muted">· ${groups[e].length}</span></div><div class="cards">`;groups[e].forEach(ix=>body+=card(ix));body+=`</div>`;});
+  if(!act.length)body+=`<p class="muted" style="margin:4px 0 0">Sin embarques activos.</p>`;
+  if(done.length){
+   const wid='doneWrap_'+paisCls(p);
+   const byYear={};done.forEach(ix=>{const r=S.seg[ix];const y=(r.fLib||r.fOfic||r.eta||'').slice(0,4)||'';(byYear[y||'—']=byYear[y||'—']||[]).push(ix);});
+   const years=Object.keys(byYear).sort().reverse();
+   let dn='';years.forEach(y=>{dn+=`<div class="segh" style="border-color:#3a7d34">${y==='—'?'Sin fecha':'Año '+y} <span class="muted">· ${byYear[y].length}</span></div><div class="cards">`;byYear[y].forEach(ix=>dn+=card(ix));dn+=`</div>`;});
+   body+=`<div class="doneblock" style="margin:2px 0 12px"><div class="segh" style="border-color:#3a7d34;background:#eef3ee;color:#2f6b2a;cursor:pointer;display:flex;justify-content:space-between;align-items:center" onclick="var w=document.getElementById('${wid}');var vis=w.style.display!=='none';w.style.display=vis?'none':'block';this.querySelector('.dcar').textContent=vis?'▼':'▲';"><span>📦 Entregados · ${done.length}</span><span class="dcar">${openDone?'▲':'▼'}</span></div><div id="${wid}" style="display:${openDone?'block':'none'}">${dn}</div></div>`;
+  }
  });
  el.innerHTML=body;if(segExpanded!=null)setTimeout(()=>loadCardDocs(segExpanded),0);}
 let segExpanded=null;
