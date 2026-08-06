@@ -588,7 +588,7 @@ function matchFilter(r){const q=segFilter.q.trim().toLowerCase();
  return true;}
 function renderSeg(){
  const opt2=(arr,v)=>arr.map(o=>`<option ${o===v?'selected':''}>${o}</option>`).join('');
- const fbar=FSA?(fsGranted?`<span class="muted small">📁 Carpeta conectada${dirHandle?': '+dirHandle.name:''} — la subcarpeta de cada operación se crea sola.</span> <button class="mini" onclick="autoMarkAllDocs()">🔎 Detectar en toda la carpeta</button> <button class="mini sec" onclick="connectFolder()">Reconectar</button>`:`<button class="sec" onclick="connectFolder()">📁 Conectar carpeta de documentos</button> <span class="muted small">para crear y ver la carpeta de cada operación</span>`):`<span class="muted small">📁 Carpeta automática de documentos: disponible en Edge/Chrome de escritorio.</span>`;
+ const fbar=FSA?(fsGranted?`<span class="muted small">📁 Carpeta conectada${dirHandle?': '+dirHandle.name:''} — la subcarpeta de cada operación se crea sola.</span> <button class="mini" onclick="autoMarkAllDocs()">🔎 Detectar en toda la carpeta</button> <button class="mini sec" onclick="diagCarpeta()">🔍 Diagnóstico</button> <button class="mini sec" onclick="connectFolder()">Reconectar</button>`:`<button class="sec" onclick="connectFolder()">📁 Conectar carpeta de documentos</button> <span class="muted small">para crear y ver la carpeta de cada operación</span>`):`<span class="muted small">📁 Carpeta automática de documentos: disponible en Edge/Chrome de escritorio.</span>`;
  const tools=`<h2>Seguimiento de embarques</h2>${panelHTML()}
  <div class="tools"><button onclick="newSeg()">+ Nuevo embarque</button><button class="sec" onclick="document.getElementById('imp-seg').click()">⇪ Importar (CSV)</button><input type="file" id="imp-seg" style="display:none" accept=".csv" onchange="importSegFile(event)"><button class="sec" onclick="segTpl()">Plantilla</button><button class="sec" onclick="exportCSV()">Exportar CSV</button><button class="sec" onclick="exportSegXlsx()">⬇ Excel</button></div>
  <div class="tools">${fbar}</div>
@@ -891,7 +891,25 @@ async function findSub(id){if(!fsGranted||!dirHandle||!id)return null;
  try{return await dirHandle.getDirectoryHandle(id,{create:false});}catch(e){}
  try{for await(const [n,h] of dirHandle.entries()){if(h.kind==='directory'&&n!==id&&match(n))return h;}}catch(e){}
  try{for await(const [n,h] of dirHandle.entries()){if(h.kind==='directory'&&/^20\d{2}$/.test(n)){try{for await(const [n2,h2] of h.entries()){if(h2.kind==='directory'&&match(n2))return h2;}}catch(e){}}}}catch(e){}
+ try{for await(const [n,h] of dirHandle.entries()){if(h.kind==='directory'&&/comex/i.test(n)){try{return await h.getDirectoryHandle(id,{create:false});}catch(e){}try{for await(const [n2,h2] of h.entries()){if(h2.kind==='directory'&&match(n2))return h2;}}catch(e){}try{for await(const [n2,h2] of h.entries()){if(h2.kind==='directory'&&/^20\d{2}$/.test(n2)){for await(const [n3,h3] of h2.entries()){if(h3.kind==='directory'&&match(n3))return h3;}}}}catch(e){}}}}catch(e){}
  return null;}
+async function diagCarpeta(){
+ if(!FSA){alert('El acceso a carpetas funciona en Edge/Chrome de escritorio.');return;}
+ if(!fsGranted||!dirHandle){alert('No hay carpeta conectada. Tocá "Conectar carpeta de documentos".');return;}
+ let dirs=[],files=[];
+ try{for await(const [n,h] of dirHandle.entries()){if(h.kind==='directory')dirs.push(n);else files.push(n);}}catch(e){alert('No pude leer la carpeta conectada: '+(e.message||e)+'\nProbá Reconectar.');return;}
+ const ship=dirs.filter(n=>/^(LUMI|LUPE|LUCL)_/i.test(n));
+ const years=dirs.filter(n=>/^20\d{2}$/.test(n));
+ const comexChild=dirs.filter(n=>/comex/i.test(n));
+ let msg='📁 Carpeta conectada: '+dirHandle.name+'\n\n';
+ msg+='Subcarpetas: '+dirs.length+'  ·  de embarque (LUMI_/LUPE_): '+ship.length+'\n';
+ msg+='Subcarpetas por año: '+(years.join(', ')||'ninguna')+'\n';
+ msg+='Archivos sueltos: '+files.length+'\n\n';
+ if(ship.length){msg+='✅ Parece la carpeta correcta. Ejemplos:\n'+ship.slice(0,10).join('\n');}
+ else if(comexChild.length){msg+='⚠ Conectaste un nivel de más: adentro hay una carpeta "'+comexChild[0]+'". La app ahora igual busca ahí, pero lo ideal es Reconectar y elegir directamente esa carpeta COMEX.';}
+ else{msg+='❌ Esta carpeta NO tiene subcarpetas de embarque. Conectaste la carpeta equivocada.\nReconectá y elegí la carpeta que al abrirla muestra "LUMI_305 - …", "2026", etc.\n\nPrimeras subcarpetas que sí tiene:\n'+dirs.slice(0,12).join('\n');}
+ alert(msg);
+}
 async function ensureFolder(id,create){if(!fsGranted||!dirHandle||!id)return null;const f=await findSub(id);if(f)return f;if(create){try{return await dirHandle.getDirectoryHandle(id,{create:true});}catch(e){return null;}}return null;}
 async function refreshDocs(id){const box=document.getElementById('docbox');if(!box)return;
  if(!FSA){box.innerHTML='<span class="muted small">Requiere Edge/Chrome de escritorio.</span>';return;}
