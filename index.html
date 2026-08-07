@@ -212,17 +212,17 @@ function timelineHTML(){const H=90;const ev=[];const over=[];const noDate=[];
  const list=ev.map(e=>'<div class="tlrow" style="cursor:pointer" onclick="openEdit('+e.ix+')"><span class="tldot" style="background:'+e.color+'"></span><b>+'+e.d+'d</b> · '+fmtD(dateFromDays(e.d))+' · '+e.label+'</div>').join('');
  return '<div class="card"><h3>Línea de tiempo — próximos 90 días</h3><div class="muted small"><span style="color:#0b5394">●</span> Argentina · <span style="color:#a1122a">●</span> Perú &nbsp;|&nbsp; ⚓ arribo · 💲 pago'+(over.length?(' · ⚠ vencidos: '+over.join('; ')):'')+'</div><div class="tlbar">'+grid+marks+'<div class="tlnow"></div></div><div class="tllist">'+list+'</div>'+(noDate.length?'<div class="muted small" style="margin-top:8px">💲 Pagos pendientes <b>sin fecha de vencimiento</b> (no se ubican en la línea): '+noDate.join('; ')+'. Cargales el vencimiento en la tarjeta para verlos acá.</div>':'')+'</div>';}
 async function loadCardDocs(ix){const el=document.getElementById('cd_'+ix);if(!el)return;const r=S.seg[ix];
- if(!FSA||!fsGranted){el.innerHTML='<span class="exl">Documentos</span> <span class="muted small">Conectá la carpeta (arriba en Seguimiento) para abrir archivos.</span>';return;}
  if(!r.id){el.innerHTML='';return;}
- let dh=null;try{dh=await ensureFolder(r.id,false);}catch(e){}
- if(!dh){el.innerHTML='<span class="exl">Documentos</span> <span class="muted small">Sin carpeta para '+r.id+' todavía.</span>';return;}
- let files=[];try{for await(const [n,hh] of dh.entries()){if(hh.kind==='file')files.push(n);}}catch(e){}
- if(!files.length){el.innerHTML='<span class="exl">Documentos</span> <span class="muted small">Carpeta vacía.</span>';return;}
+ el.innerHTML='<span class="exl">Documentos</span> <span class="muted small">buscando…</span>';
+ const D=await embDocs(r.id);
+ if(D.src===null){el.innerHTML='<span class="exl">Documentos</span> <span class="muted small">Sin carpeta para '+r.id+' (iniciá sesión M365 o conectá la carpeta).</span>';return;}
+ const files=D.items.map(x=>x.name);
+ if(!files.length){el.innerHTML='<span class="exl">Documentos</span> <span class="muted small">Carpeta vacía'+(D.src==='sp'?' en SharePoint':'')+'.</span>';return;}
  const want=[['bl','BL/HBL'],['despacho','Despacho/Provisorio'],['liquid','Liquidación'],['fcprov','Factura'],['swift','Swift'],['packing','Packing'],['fflete','Flete']];
  const byKey={};files.forEach(f=>{const k=guessDocKey(f);if(k&&!byKey[k])byKey[k]=f;});
  const esc=s=>String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;');
  const chips=want.filter(w=>byKey[w[0]]).map(w=>'<button class="mini" data-fn="'+esc(byKey[w[0]])+'">📄 '+w[1]+'</button>').join(' ');
- el.innerHTML='<span class="exl">Documentos ('+files.length+' en carpeta)</span> '+(chips||'<span class="muted small">Sin documentos clave reconocidos.</span>')+' <button class="mini sec" data-edit="1">Ver todos</button>';
+ el.innerHTML='<span class="exl">Documentos ('+files.length+(D.src==='sp'?' · SharePoint':' · local')+')</span> '+(chips||'<span class="muted small">Sin documentos clave reconocidos.</span>')+' <button class="mini sec" data-edit="1">Ver todos</button>';
  el.querySelectorAll('button[data-fn]').forEach(b=>b.onclick=()=>openDoc(r.id,b.getAttribute('data-fn')));
  const eb=el.querySelector('button[data-edit]');if(eb)eb.onclick=()=>openEdit(ix);}
 function gastosEditor(c){const d=S[c];const rows=d.gastosRows||[];
@@ -363,17 +363,16 @@ function parseMoneyToken(t){t=String(t).replace(/[^\d.,]/g,'');if(!t)return null
 async function traerCostoReal(ix){ix=+ix;const r=S.seg[ix];if(!r)return;
  const esc=s=>String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
  const head=`💵 Costo real desde la liquidación — ${esc(r.id||'')}`;
- if(!FSA||!fsGranted){detModal(`<h3 style="margin-top:0">${head}</h3><div class="note">Conectá la carpeta de documentos en Seguimiento (desde la computadora) para leer la liquidación.</div>`);return;}
+ if(!(await spReady())&&(!FSA||!fsGranted)){detModal(`<h3 style="margin-top:0">${head}</h3><div class="note">Iniciá sesión M365 (o conectá la carpeta de documentos) para leer la liquidación.</div>`);return;}
  const ov=detModal(`<h3 style="margin-top:0">${head}</h3><div class="muted">Leyendo la liquidación de la carpeta…</div>`);
  const box=ov.querySelector('div');const tc=num((r.pais==='Perú'?S.pe:S.ar).tc)||0;
  let cands=[],filesRead=[];
- try{const dh=await findSub(r.id);
-  if(dh){let pdfs=[];for await(const [n,h] of dh.entries()){if(h.kind==='file'&&/\.pdf$/i.test(n))pdfs.push([n,h]);}
-   const pri=pdfs.filter(x=>/liquid|gasto|honorar|hoja.*costo|final|costos|boleta/i.test(x[0]));
-   const use=(pri.length?pri:pdfs).slice(0,8);
-   for(const [n,h] of use){let lines=[];try{lines=await readPdfText(await h.getFile());}catch(e){continue;}filesRead.push(n);
-    lines.forEach(L=>{const isUsd=/u\$s|us\$|usd|d[oó]lar/i.test(L);const m=L.match(/\d[\d.,]{3,}/g);if(!m)return;m.forEach(tok=>{if(!/[.,]\d{2}$/.test(tok))return;const dig=tok.replace(/\D/g,'');if(dig.length>11)return;const v=parseMoneyToken(tok);if(v==null)return;const cap=isUsd?2000000:500000000;if(v<100||v>cap)return;cands.push({v,cur:isUsd?'USD':'ARS',file:n});});});}
-  }
+ try{const D=await embDocs(r.id);
+  const pdfs=D.items.filter(f=>/\.pdf$/i.test(f.name));
+  const pri=pdfs.filter(x=>/liquid|gasto|honorar|hoja.*costo|final|costos|boleta/i.test(x.name));
+  const use=(pri.length?pri:pdfs).slice(0,8);
+  for(const f of use){let lines=[];try{lines=await readPdfText(await f.get());}catch(e){continue;}filesRead.push(f.name);
+   lines.forEach(L=>{const isUsd=/u\$s|us\$|usd|d[oó]lar/i.test(L);const m=L.match(/\d[\d.,]{3,}/g);if(!m)return;m.forEach(tok=>{if(!/[.,]\d{2}$/.test(tok))return;const dig=tok.replace(/\D/g,'');if(dig.length>11)return;const v=parseMoneyToken(tok);if(v==null)return;const cap=isUsd?2000000:500000000;if(v<100||v>cap)return;cands.push({v,cur:isUsd?'USD':'ARS',file:f.name});});});}
  }catch(e){}
  if(!document.body.contains(ov))return;
  const seen={},uniq=[];cands.sort((a,b)=>b.v-a.v).forEach(c=>{const k=c.cur+Math.round(c.v);if(!seen[k]){seen[k]=1;uniq.push(c);}});
@@ -406,15 +405,15 @@ async function verDetalle(ix){ix=+ix;const r=S.seg[ix];if(!r)return;
   :`<div class="note">No encontré una factura legible en la carpeta de ${esc(r.id||'este embarque')}. Revisá que esté el PDF/Excel de la factura del proveedor en su carpeta.</div>`;
  box.innerHTML=`<h3 style="margin-top:0">${head}</h3>${body}<div class="tools" style="justify-content:flex-end;margin-top:12px"><button class="sec" id="detClose">Cerrar</button></div>`;
  const b=box.querySelector('#detClose');if(b)b.onclick=()=>ov.remove();}
-async function findInvoiceItems(ix,dk){const r=S.seg[ix];const dh=await findSub(r.id);if(!dh)return {items:[],file:null,noFolder:true};
+async function findInvoiceItems(ix,dk){const r=S.seg[ix];const D=await embDocs(r.id);if(D.src===null)return {items:[],file:null,noFolder:true};
  const prov=(r.prov||'').toLowerCase().replace(/[^a-z0-9]/g,'');
  const esProveedor=n=>{const sa=n.toLowerCase().replace(/[^a-z0-9]/g,'');return sa.includes('petdur')||(prov&&prov.length>2&&sa.includes(prov));};
  const score=n=>{n=n.toLowerCase();let s=0;if(/\bci\b|commercial|invoice|factura|proforma|\bpi\b/.test(n))s+=3;if(/fanttik|order|pedido/.test(n))s+=1;return s;};
  const esFlete=n=>/trice|flete|freight|forwarder|onboard/i.test(n);
- let all=[];try{for await(const [n,h] of dh.entries()){if(h.kind==='file'&&/\.(xlsx?|pdf)$/i.test(n)&&!/^~\$/.test(n))all.push([n,h]);}}catch(e){return {items:[],file:null};}
- const parse=async list=>{for(const [n,h] of list){try{let best=[];
-   if(/\.pdf$/i.test(n)){const lines=await readPdfText(await h.getFile());best=detectItems(lines.map(l=>l.split(/\s{2,}/)),dk);if(!best.length)best=detectB2Box(lines,dk);if(!best.length)best=detectInvoiceLines(lines,dk);}
-   else{if(typeof XLSX==='undefined')continue;const wb=XLSX.read(new Uint8Array(await (await h.getFile()).arrayBuffer()),{type:'array'});wb.SheetNames.forEach(sn=>{const it=detectItems(XLSX.utils.sheet_to_json(wb.Sheets[sn],{header:1,defval:''}),dk);if(it.length>best.length)best=it;});}
+ const all=D.items.filter(f=>/\.(xlsx?|pdf)$/i.test(f.name)&&!/^~\$/.test(f.name)).map(f=>[f.name,f]);
+ const parse=async list=>{for(const [n,f] of list){try{let best=[];
+   if(/\.pdf$/i.test(n)){const lines=await readPdfText(await f.get());best=detectItems(lines.map(l=>l.split(/\s{2,}/)),dk);if(!best.length)best=detectB2Box(lines,dk);if(!best.length)best=detectInvoiceLines(lines,dk);}
+   else{if(typeof XLSX==='undefined')continue;const wb=XLSX.read(new Uint8Array(await (await f.get()).arrayBuffer()),{type:'array'});wb.SheetNames.forEach(sn=>{const it=detectItems(XLSX.utils.sheet_to_json(wb.Sheets[sn],{header:1,defval:''}),dk);if(it.length>best.length)best=it;});}
    if(best.length)return {items:best,file:n};
   }catch(e){}}return null;};
  const prv=all.filter(f=>esProveedor(f[0])&&!esFlete(f[0])).sort((a,b)=>(/\.pdf$/i.test(a[0])?1:0)-(/\.pdf$/i.test(b[0])?1:0));
@@ -588,7 +587,7 @@ function matchFilter(r){const q=segFilter.q.trim().toLowerCase();
  return true;}
 function renderSeg(){
  const opt2=(arr,v)=>arr.map(o=>`<option ${o===v?'selected':''}>${o}</option>`).join('');
- const fbar=FSA?(fsGranted?`<span class="muted small">📁 Carpeta conectada${dirHandle?': '+dirHandle.name:''} — la subcarpeta de cada operación se crea sola.</span> <button class="mini" onclick="autoMarkAllDocs()">🔎 Detectar en toda la carpeta</button> <button class="mini sec" onclick="diagCarpeta()">🔍 Diagnóstico</button> <button class="mini sec" onclick="connectFolder()">Reconectar</button>`:`<button class="sec" onclick="connectFolder()">📁 Conectar carpeta de documentos</button> <span class="muted small">para crear y ver la carpeta de cada operación</span>`):`<span class="muted small">📁 Carpeta automática de documentos: disponible en Edge/Chrome de escritorio.</span>`;
+ const fbar=`<span class="muted small">☁ Documentos en SharePoint (compartidos — no hace falta conectar carpeta).</span> <button class="mini" onclick="autoMarkAllDocs()">🔎 Detectar en toda la carpeta</button>`+(FSA?(fsGranted?` <span class="muted small">· 📁 local: ${dirHandle?dirHandle.name:'—'}</span> <button class="mini sec" onclick="migrarASharePoint()">☁ Migrar local → SharePoint</button> <button class="mini sec" onclick="diagCarpeta()">🔍 Diagnóstico</button> <button class="mini sec" onclick="connectFolder()">Reconectar</button>`:` <button class="mini sec" onclick="connectFolder()">📁 Conectar carpeta local (opcional, para migrar)</button>`):``);
  const tools=`<h2>Seguimiento de embarques</h2>${panelHTML()}
  <div class="tools"><button onclick="newSeg()">+ Nuevo embarque</button><button class="sec" onclick="document.getElementById('imp-seg').click()">⇪ Importar (CSV)</button><input type="file" id="imp-seg" style="display:none" accept=".csv" onchange="importSegFile(event)"><button class="sec" onclick="segTpl()">Plantilla</button><button class="sec" onclick="exportCSV()">Exportar CSV</button><button class="sec" onclick="exportSegXlsx()">⬇ Excel</button></div>
  <div class="tools">${fbar}</div>
@@ -727,17 +726,30 @@ function guessDocKey(fn){fn=fn.toLowerCase();
  if(/factura|invoice|commercial.?invoice|[-_ ]ci[-_ ]|ci_|[-_ ]inv[-_ ]|ataf|101_a|[-_ ]a\d{3}/.test(fn))return 'fcprov';
  if(/orden|order|reserva|rsv|orderstatus/.test(fn))return 'orden';
  return null;}
-async function autoMarkDocs(ix){const r=S.seg[ix];if(!fsGranted||!r.id){alert('Conectá la carpeta y guardá el ID primero.');return;}const dh=await ensureFolder(r.id,false);if(!dh){alert('No encontré la carpeta de '+r.id);return;}let files=[];try{for await(const [n,hh] of dh.entries()){if(hh.kind==='file')files.push(n);}}catch(e){}r.docsChk=r.docsChk||{};let cnt=0;files.forEach(f=>{const k=guessDocKey(f);if(k&&!r.docsChk[k]){r.docsChk[k]=true;cnt++;}});save();renderDocChk(ix);alert(cnt?('Marqué '+cnt+' documento(s) detectado(s) por nombre de archivo. Revisá y ajustá lo que falte.'):'No detecté documentos nuevos por nombre. Marcá a mano los que tengas.');}
-async function autoMarkAllDocs(){if(!FSA||!fsGranted){alert('Conectá primero la carpeta de documentos.');return;}
+async function autoMarkDocs(ix){const r=S.seg[ix];if(!r.id){alert('Guardá el ID primero.');return;}const D=await embDocs(r.id);if(D.src===null){alert('No encontré documentos de '+r.id+' (ni en SharePoint ni en carpeta local).');return;}const files=D.items.map(x=>x.name);r.docsChk=r.docsChk||{};let cnt=0;files.forEach(f=>{const k=guessDocKey(f);if(k&&!r.docsChk[k]){r.docsChk[k]=true;cnt++;}});save();renderDocChk(ix);alert(cnt?('Marqué '+cnt+' documento(s) detectado(s) por nombre de archivo. Revisá y ajustá lo que falte.'):'No detecté documentos nuevos por nombre. Marcá a mano los que tengas.');}
+async function autoMarkAllDocs(){if(!(await spReady())&&!fsGranted){alert('Iniciá sesión M365 o conectá la carpeta de documentos.');return;}
  let touched=0,marked=0,nofolder=[],detail=[];
  for(let ix=0;ix<S.seg.length;ix++){const r=S.seg[ix];if(!r.id)continue;
-  let dh=null;try{dh=await ensureFolder(r.id,false);}catch(e){}
-  if(!dh){nofolder.push(r.id);continue;}
-  let files=[];try{for await(const [n,hh] of dh.entries()){if(hh.kind==='file')files.push(n);}}catch(e){continue;}
+  let D;try{D=await embDocs(r.id);}catch(e){D={src:null,items:[]};}
+  if(D.src===null){nofolder.push(r.id);continue;}
+  const files=D.items.map(x=>x.name);
   r.docsChk=r.docsChk||{};let c=0;files.forEach(f=>{const k=guessDocKey(f);if(k&&!r.docsChk[k]){r.docsChk[k]=true;c++;}});
   if(c){marked+=c;touched++;detail.push(r.id+': +'+c);}}
  save();renderSeg();
  alert('Detección completa.\n'+marked+' documento(s) marcados en '+touched+' embarque(s).'+(detail.length?'\n\n'+detail.join('\n'):'')+(nofolder.length?'\n\nSin carpeta aún: '+nofolder.join(', '):''));}
+async function migrarASharePoint(){
+ if(!(await spReady())){alert('Iniciá sesión M365 primero.');return;}
+ if(!fsGranted||!dirHandle){alert('Conectá la carpeta local COMEX (Reconectar) para poder subir sus archivos a SharePoint.');return;}
+ const activos=S.seg.filter(r=>r.id&&r.estado!=='Entregado');
+ if(!confirm('Voy a subir a SharePoint los documentos de '+activos.length+' embarques activos (los que ya existan no se re-suben). Puede tardar unos minutos. ¿Seguir?'))return;
+ let okF=0,okDocs=0,skip=0,errs=[];
+ for(const r of activos){try{const dh=await findSub(r.id);if(!dh)continue;const fi=await spEmbItem(r.id,true);if(!fi){errs.push(r.id+' (carpeta SP)');continue;}
+  const have=new Set((await spKids(fi)).filter(k=>!k.folder).map(k=>k.name));
+  for await(const [n,h] of dh.entries()){if(h.kind!=='file'||/^~\$/.test(n))continue;if(have.has(n)){skip++;continue;}try{const f=await h.getFile();const ok=await spUploadItem(fi,n,f);if(ok)okDocs++;else errs.push(r.id+'/'+n);}catch(x){errs.push(r.id+'/'+n);}}
+  okF++;
+ }catch(e){errs.push(r.id+' ('+(e.message||e)+')');}}
+ alert('Migración a SharePoint:\n'+okF+' carpetas · '+okDocs+' archivos subidos · '+skip+' ya existían.'+(errs.length?'\n\nProblemas ('+errs.length+'):\n'+errs.slice(0,15).join('\n'):''));
+}
 function closeM(){const m=document.getElementById('editModal');if(m)m.remove();}
 function saveEdit(ix){['id','pais','prov','prod','origen','modo','inco','estado','fOrden','etd','eta','fOfic','fLib','despa','costEst','costReal','docs','notas'].forEach(k=>{const el=document.getElementById('ed_'+k);if(el)S.seg[ix][k]=el.value;});if(S.seg[ix].id){S.seg[ix].id=normId(S.seg[ix].id);if(!idOK(S.seg[ix].id))setTimeout(()=>alert('Aviso: el ID "'+S.seg[ix].id+'" no tiene el formato estándar (LUMI_### / LUMI_###A). Se guardó igual, pero revisalo para poder cruzarlo con la carpeta y Odoo.'),60);}save();if(fsGranted&&S.seg[ix].id)ensureFolder(S.seg[ix].id,true);closeM();renderSeg();}
 function delSegM(ix){if(confirm('¿Eliminar este embarque?')){S.seg.splice(ix,1);save();closeM();renderSeg();}}
@@ -886,6 +898,17 @@ const idbGet=k=>idbDo('readonly',st=>st.get(k));
 async function dirWorks(h){try{for await(const _e of h.entries()){break;}return true;}catch(e){return false;}}
 async function restoreFolder(){if(!FSA)return;try{const h=await idbGet('dir');if(h){dirHandle=h;const p=await h.queryPermission({mode:'readwrite'});fsGranted=(p==='granted')&&await dirWorks(h);}}catch(e){}renderSeg();}
 async function connectFolder(){if(!FSA)return;try{if(dirHandle){const p=await dirHandle.requestPermission({mode:'readwrite'});if(p==='granted'&&await dirWorks(dirHandle)){fsGranted=true;renderSeg();return;}}dirHandle=await window.showDirectoryPicker({mode:'readwrite'});fsGranted=true;await idbSet('dir',dirHandle);renderSeg();}catch(e){}}
+async function spReady(){if(!account)return false;try{await ensureSite();return !!siteId;}catch(e){return false;}}
+async function spKids(itemId){const r=await graph("/sites/"+siteId+"/drive/items/"+itemId+"/children?$top=400");if(r.status!==200)return [];const j=await r.json();return (j.value||[]).map(x=>({name:x.name,id:x.id,folder:!!x.folder,size:x.size,webUrl:x.webUrl}));}
+async function spComexRoot(create){try{const r=await graph("/sites/"+siteId+"/drive/root:/COMEX");if(r.status===200)return (await r.json()).id;if(r.status===404&&create){const mk=await graph("/sites/"+siteId+"/drive/root/children",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({name:"COMEX",folder:{},"@microsoft.graph.conflictBehavior":"fail"})});if(mk.ok)return (await mk.json()).id;}}catch(e){}return null;}
+async function spEmbItem(id,create){if(!await spReady())return null;const rootId=await spComexRoot(create);if(!rootId)return null;const m=n=>n===id||(n.startsWith(id)&&!/\d/.test(n.charAt(id.length)));const kids=await spKids(rootId);let f=kids.find(k=>k.folder&&m(k.name));if(f)return f.id;for(const y of kids.filter(k=>k.folder&&/^20\d{2}$/.test(k.name))){const yk=await spKids(y.id);const ff=yk.find(k=>k.folder&&m(k.name));if(ff)return ff.id;}if(create){const mk=await graph("/sites/"+siteId+"/drive/items/"+rootId+"/children",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({name:id,folder:{},"@microsoft.graph.conflictBehavior":"fail"})});if(mk.ok)return (await mk.json()).id;}return null;}
+async function spBlob(itemId){const r=await graph("/sites/"+siteId+"/drive/items/"+itemId+"/content");return await r.blob();}
+async function spUploadItem(folderItemId,name,blob){const r=await graph("/sites/"+siteId+"/drive/items/"+folderItemId+":/"+encodeURIComponent(name)+":/content",{method:"PUT",headers:{"Content-Type":(blob&&blob.type)||"application/octet-stream"},body:blob});return r.ok;}
+// Accesor unificado de documentos: SharePoint primero, carpeta local como respaldo
+async function embDocs(id){if(!id)return {src:null,items:[]};
+ try{if(await spReady()){const fi=await spEmbItem(id,false);if(fi){const kids=(await spKids(fi)).filter(k=>!k.folder);return {src:'sp',folderItem:fi,items:kids.map(k=>({name:k.name,webUrl:k.webUrl,size:k.size,get:async()=>await spBlob(k.id)}))};}}}catch(e){}
+ if(fsGranted&&dirHandle){try{const dh=await findSub(id);if(dh){const items=[];for await(const [n,h] of dh.entries()){if(h.kind==='file')items.push({name:n,get:async()=>await h.getFile()});}return {src:'local',dh,items};}}catch(e){}}
+ return {src:null,items:[]};}
 async function findSub(id){if(!fsGranted||!dirHandle||!id)return null;
  const match=n=>n===id||(n.startsWith(id)&&!/\d/.test(n.charAt(id.length)));
  try{return await dirHandle.getDirectoryHandle(id,{create:false});}catch(e){}
@@ -912,18 +935,21 @@ async function diagCarpeta(){
 }
 async function ensureFolder(id,create){if(!fsGranted||!dirHandle||!id)return null;const f=await findSub(id);if(f)return f;if(create){try{return await dirHandle.getDirectoryHandle(id,{create:true});}catch(e){return null;}}return null;}
 async function refreshDocs(id){const box=document.getElementById('docbox');if(!box)return;
- if(!FSA){box.innerHTML='<span class="muted small">Requiere Edge/Chrome de escritorio.</span>';return;}
- if(!fsGranted){box.innerHTML='<span class="muted small">Conectá la carpeta de documentos (botón arriba en Seguimiento) para ver/crear la carpeta de este embarque.</span>';return;}
  if(!id){box.innerHTML='<span class="muted small">Poné un Embarque ID y Guardá: su carpeta se crea sola.</span>';return;}
- const dh=await ensureFolder(id,false);
- if(!dh){box.innerHTML=`<span class="muted small">Sin carpeta aún.</span> <button class="mini" onclick="makeDocs('${id}')">Crear carpeta ${id}</button>`;return;}
- let files=[];try{for await(const [n,h] of dh.entries()){if(h.kind==='file')files.push(n);}}catch(e){}
- files.sort();
- box.innerHTML=`<div class="muted small">📁 ${id} · ${files.length} archivo(s)</div>`+files.map(n=>`<div class="docrow"><span class="doclink" onclick="openDoc('${id}',this.textContent.slice(2))">📄 ${n}</span></div>`).join('')+`<button class="mini" onclick="document.getElementById('docup').click()">+ Agregar archivo</button><input type="file" id="docup" multiple style="display:none" onchange="addDocs('${id}',event)">`;
+ const sp=await spReady();
+ if(!sp&&(!FSA||!fsGranted)){box.innerHTML='<span class="muted small">Iniciá sesión M365 (o conectá la carpeta) para ver/crear los documentos de este embarque.</span>';return;}
+ box.innerHTML='<span class="muted small">buscando…</span>';
+ const D=await embDocs(id);
+ if(D.src===null){box.innerHTML=`<span class="muted small">Sin carpeta aún.</span> <button class="mini" onclick="makeDocs('${id}')">Crear carpeta ${id}</button>`;return;}
+ const esc=s=>String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;');
+ const files=D.items.map(x=>x.name).sort();
+ box.innerHTML=`<div class="muted small">📁 ${id} · ${files.length} archivo(s) · ${D.src==='sp'?'SharePoint':'local'}</div>`+files.map(n=>`<div class="docrow"><span class="doclink" data-fn="${esc(n)}" onclick="openDoc('${id}',this.getAttribute('data-fn'))">📄 ${esc(n)}</span></div>`).join('')+`<button class="mini" onclick="document.getElementById('docup').click()">+ Agregar archivo</button><input type="file" id="docup" multiple style="display:none" onchange="addDocs('${id}',event)">`;
 }
-async function makeDocs(id){await ensureFolder(id,true);refreshDocs(id);}
-async function addDocs(id,e){const dh=await ensureFolder(id,true);if(dh){for(const f of e.target.files){try{const fh=await dh.getFileHandle(f.name,{create:true});const w=await fh.createWritable();await w.write(f);await w.close();}catch(x){}}}e.target.value='';refreshDocs(id);}
-async function openDoc(id,name){const dh=await ensureFolder(id,false);if(!dh)return;try{const fh=await dh.getFileHandle(name);const f=await fh.getFile();window.open(URL.createObjectURL(f),'_blank');}catch(x){}}
+async function makeDocs(id){if(await spReady()){await spEmbItem(id,true);}else{await ensureFolder(id,true);}refreshDocs(id);}
+async function addDocs(id,e){const files=[...e.target.files];if(await spReady()){const fi=await spEmbItem(id,true);if(fi){for(const f of files){try{await spUploadItem(fi,f.name,f);}catch(x){}}}}else if(fsGranted){const dh=await ensureFolder(id,true);if(dh){for(const f of files){try{const fh=await dh.getFileHandle(f.name,{create:true});const w=await fh.createWritable();await w.write(f);await w.close();}catch(x){}}}}e.target.value='';refreshDocs(id);}
+async function openDoc(id,name){
+ try{if(await spReady()){const fi=await spEmbItem(id,false);if(fi){const k=(await spKids(fi)).find(x=>x.name===name);if(k){if(k.webUrl){window.open(k.webUrl,'_blank');return;}const b=await spBlob(k.id);window.open(URL.createObjectURL(b),'_blank');return;}}}}catch(e){}
+ try{const dh=await findSub(id);if(dh){const fh=await dh.getFileHandle(name);const f=await fh.getFile();window.open(URL.createObjectURL(f),'_blank');}}catch(x){}}
 function dispoHTML(){const d=S.dispo||{};const items=d.items||[];if(!items.length)return '';const giros=d.giros||[];const norm=s=>String(s||'').toLowerCase().replace(/\s+/g,'');const giradoFor=it=>giros.filter(g=>{const gk=norm(g.fac)||norm(g.ref);if(!gk)return false;const fk=norm(it.fac),rk=norm(it.ref);return (fk&&(fk===gk||fk.includes(gk)||gk.includes(fk)))||(rk&&(rk===gk||rk.includes(gk)||gk.includes(rk)));}).reduce((a,g)=>a+num(g.monto),0);let tM=0,tG=0,tS=0;const rows=items.map(it=>{const g=giradoFor(it);const s=num(it.monto)-g;tM+=num(it.monto);tG+=g;tS+=s;return `<tr><td>${it.fecha||''}</td><td>${it.ref||''}${it.nota?' <span class="muted">('+it.nota+')</span>':''}</td><td>${it.fac||''}</td><td>${it.banco||''}</td><td class="right">${money(it.monto)}</td><td class="right">${g?money(g):'—'}</td><td class="right"><b style="color:${s<=0?'#3a7d34':s<num(it.monto)?'#c0662e':'var(--navy)'}">${money(s)}</b></td></tr>`;}).join('');return `<div class="card"><h3>💵 Disponibilidad de pagos — giros al exterior</h3><p class="muted">Fondos disponibles para girar al exterior de embarques ya <b>nacionalizados</b>. Solo se puede girar desde el <b>banco con el que se pagó el VEP</b> de nacionalización. A medida que se detectan giros (por Nº de factura Petdur / despacho / embarque) se van restando del monto hasta llegar a cero.</p><table><tr><th>Fecha de giro</th><th>Embarque</th><th>Nº FAC</th><th>Banco</th><th class="right">Monto USD</th><th class="right">Girado</th><th class="right">Saldo</th></tr>${rows}<tr style="border-top:2px solid var(--navy);font-weight:bold"><td colspan="4">TOTAL</td><td class="right">${money(tM)}</td><td class="right">${money(tG)}</td><td class="right">${money(tS)}</td></tr></table></div>`;}
 function renderResumen(){const seg=S.seg.filter(resMatch);const activos=seg.filter(r=>r.estado!=="Entregado");
  const byPais=p=>activos.filter(r=>r.pais===p);const val=arr=>arr.reduce((s,r)=>s+num(r.costEst),0);
