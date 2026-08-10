@@ -206,7 +206,7 @@ async function fetchRates(){const m=document.getElementById('ratesMsg');if(m)m.t
 function dateFromDays(d){const x=new Date();x.setHours(0,0,0,0);x.setDate(x.getDate()+d);return x.toISOString().slice(0,10);}
 function timelineHTML(){const H=90;const ev=[];const over=[];const noDate=[];
  const pc=p=>p==='Perú'?'#a1122a':p==='Argentina'?'#0b5394':'#777';
- S.seg.forEach((r,ix)=>{if(r.eta&&r.estado!=='Entregado'&&r.estado!=='Nacionalizado'){const d=diasETA(r.eta);if(d!=null){if(d>=0&&d<=H)ev.push({d,label:'⚓ '+(r.id||'')+' · arribo',color:pc(r.pais),ix});else if(d<0)over.push((r.id||'')+' arribo venc. '+(-d)+'d');}}
+ S.seg.forEach((r,ix)=>{if(peruMode()&&r.pais!=='Perú')return;if(r.eta&&r.estado!=='Entregado'&&r.estado!=='Nacionalizado'){const d=diasETA(r.eta);if(d!=null){if(d>=0&&d<=H)ev.push({d,label:'⚓ '+(r.id||'')+' · arribo',color:pc(r.pais),ix});else if(d<0)over.push((r.id||'')+' arribo venc. '+(-d)+'d');}}
   (r.pagos||[]).forEach(p=>{if(!p.pagado){const lab='💲 '+(r.id||'')+' · '+(p.concepto||'pago')+(p.monto?(' USD '+money(num(p.monto))):'');if(p.fecha){const d=diasETA(p.fecha);if(d!=null){if(d>=0&&d<=H)ev.push({d,label:lab,color:pc(r.pais),ix});else if(d<0)over.push(lab+' venc. '+(-d)+'d');}}else{noDate.push(lab);}}});});
  ev.sort((a,b)=>a.d-b.d);
  if(!ev.length&&!over.length&&!noDate.length)return '<div class="card"><h3>Línea de tiempo — próximos 90 días</h3><div class="muted">'+(account?'Sin arribos ni vencimientos de pago en la ventana.':'🔒 Iniciá sesión M365 (arriba) para ver los arribos y pagos — los datos están en SharePoint.')+'</div></div>';
