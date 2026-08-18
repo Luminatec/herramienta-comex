@@ -394,8 +394,8 @@ async function traerCostoReal(ix){ix=+ix;const r=S.seg[ix];if(!r)return;
 async function verDetalle(ix){ix=+ix;const r=S.seg[ix];if(!r)return;
  const esc=s=>String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
  const head=`📋 Factura del proveedor — ${esc(r.id||'')}${r.prod?(' · '+esc(r.prod)):''}`;
- if(!FSA||!fsGranted){detModal(`<h3 style="margin-top:0">${head}</h3><div class="note">Para leer la factura conectá la carpeta de documentos en Seguimiento (funciona desde la computadora).</div>`);return;}
- const ov=detModal(`<h3 style="margin-top:0">${head}</h3><div class="muted">Leyendo la factura de la carpeta…</div>`);
+ if(!(await spReady())&&(!FSA||!fsGranted)){detModal(`<h3 style="margin-top:0">${head}</h3><div class="note">Iniciá sesión M365 (o conectá la carpeta de documentos) para leer la factura.</div>`);return;}
+ const ov=detModal(`<h3 style="margin-top:0">${head}</h3><div class="muted">Leyendo la factura…</div>`);
  let res=null;try{res=await findInvoiceItems(ix,'der');}catch(e){}
  const box=ov.querySelector('div');if(!document.body.contains(ov))return;
  const its=(res&&res.items)?res.items.filter(i=>i.sku||i.desc||i.qty||i.fob):[];
