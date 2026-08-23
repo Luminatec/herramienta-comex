@@ -169,7 +169,11 @@ const defaults={
 let S=load();
 function load(){try{const d=JSON.parse(localStorage.getItem(LS));return d?deepMerge(structuredClone(defaults),d):structuredClone(defaults);}catch(e){return structuredClone(defaults);}}
 function deepMerge(a,b){for(const k in b){if(b[k]&&typeof b[k]==="object"&&!Array.isArray(b[k]))deepMerge(a[k]=a[k]||{},b[k]);else a[k]=b[k];}return a;}
-function save(){S._ts=Date.now();window.__dirty=true;localStorage.setItem(LS,JSON.stringify(S));scheduleCloudPush();}
+let SEGSHADOW={};
+function segSig(r){try{var c=Object.assign({},r);delete c._m;return JSON.stringify(c);}catch(e){return Math.random()+'';}}
+function rebuildSegShadow(){SEGSHADOW={};(S.seg||[]).forEach(function(r,i){if(r)SEGSHADOW[(r.id!=null&&r.id!=='')?r.id:('#'+i)]=segSig(r);});}
+function stampSeg(){try{(S.seg||[]).forEach(function(r,i){if(!r)return;var k=(r.id!=null&&r.id!=='')?r.id:('#'+i);var s=segSig(r);if(SEGSHADOW[k]!==s){r._m=S._ts;SEGSHADOW[k]=s;}});}catch(e){}}
+function save(){S._ts=Date.now();stampSeg();window.__dirty=true;localStorage.setItem(LS,JSON.stringify(S));scheduleCloudPush();}
 const money=n=>isFinite(n)?n.toLocaleString('es-AR',{minimumFractionDigits:2,maximumFractionDigits:2}):"–";
 const pct=n=>isFinite(n)?(n*100).toLocaleString('es-AR',{minimumFractionDigits:1,maximumFractionDigits:1})+"%":"–";
 const num=v=>{const n=parseFloat(v);return isFinite(n)?n:0;};
@@ -1014,14 +1018,17 @@ async function logout(){try{await msalApp.logoutRedirect();}catch(e){}}
 async function getToken(){try{const r=await msalApp.acquireTokenSilent({scopes:GRAPH_SCOPES,account});return r.accessToken;}catch(e){const r=await msalApp.acquireTokenPopup({scopes:GRAPH_SCOPES});return r.accessToken;}}
 async function graph(path,opts){opts=opts||{};const t=await getToken();return fetch("https://graph.microsoft.com/v1.0"+path,Object.assign({},opts,{headers:Object.assign({Authorization:"Bearer "+t},opts.headers||{})}));}
 async function ensureSite(){if(siteId)return;const r=await graph("/sites/"+SP_HOST+":"+SP_SITE);const j=await r.json();if(!j.id)throw new Error("No encuentro el sitio de SharePoint");siteId=j.id;}
-async function cloudLoad(){try{await ensureSite();const r=await graph("/sites/"+siteId+"/drive/root:/"+DATA_FILE+":/content");if(r.status===200){const data=await r.json();if(S&&S._ts&&data._ts&&S._ts>data._ts){S._syncBase=data._ts;cloudReady=true;renderAll();setSync("synced","Tus cambios locales eran más nuevos: subiéndolos");scheduleCloudPush();}else{S=deepMerge(structuredClone(defaults),data);S._syncBase=data._ts||0;localStorage.setItem(LS,JSON.stringify(S));cloudReady=true;renderAll();show(peruMode()?"seg":"inst");applyScope();setSync("synced");}dailyBackup();}else if(r.status===404){S._syncBase=S._ts||0;cloudReady=true;renderAll();setSync("synced","Sin datos aún — empezá a cargar");}else{setSync("error","No pude leer los datos ("+r.status+")");}}catch(e){console.error(e);setSync("error","Error al cargar los datos");}}
+async function cloudLoad(){try{await ensureSite();const r=await graph("/sites/"+siteId+"/drive/root:/"+DATA_FILE+":/content");if(r.status===200){const data=await r.json();if(S&&S._ts&&data._ts&&S._ts>data._ts){S._syncBase=data._ts;cloudReady=true;rebuildSegShadow();renderAll();setSync("synced","Tus cambios locales eran más nuevos: subiéndolos");scheduleCloudPush();}else{S=deepMerge(structuredClone(defaults),data);S._syncBase=data._ts||0;rebuildSegShadow();localStorage.setItem(LS,JSON.stringify(S));cloudReady=true;renderAll();show(peruMode()?"seg":"inst");applyScope();setSync("synced");}dailyBackup();}else if(r.status===404){S._syncBase=S._ts||0;cloudReady=true;rebuildSegShadow();renderAll();setSync("synced","Sin datos aún — empezá a cargar");}else{setSync("error","No pude leer los datos ("+r.status+")");}}catch(e){console.error(e);setSync("error","Error al cargar los datos");}}
 async function cloudReload(){setSync("loading");siteId=null;await cloudLoad();}
 function scheduleCloudPush(){if(!account||!cloudReady)return;clearTimeout(pushTimer);pushTimer=setTimeout(cloudPush,1500);}
 function mergeCloudInto(cloud){
  // Fusión aditiva: la nube es base (más nueva); superponemos lo local sin descartar registros de la nube.
  const byId={},noId=[];
  (cloud.seg||[]).forEach(r=>{if(r&&r.id)byId[r.id]=r;else if(r)noId.push(r);});
- (S.seg||[]).forEach(r=>{if(r&&r.id)byId[r.id]=r;else if(r)noId.push(r);}); // local gana en id compartido
+ (S.seg||[]).forEach(r=>{ // blindaje por registro: en id compartido gana el de _m más nuevo
+  if(r&&r.id){var c=byId[r.id];if(!c){byId[r.id]=r;}else{var lm=r._m||0,cm=c._m||0;byId[r.id]=(lm>=cm)?r:c;}}
+  else if(r)noId.push(r);
+ });
  S.seg=Object.values(byId).concat(noId);
  S.dispo=S.dispo||{};const cd=cloud.dispo||{};
  const ik=it=>it.fac||it.ref||JSON.stringify(it);const ib={};
@@ -1033,6 +1040,7 @@ function mergeCloudInto(cloud){
  ['ivaMaster','derMaster','ncmMaster','descMaster','aliasMap'].forEach(m=>{S[m]=Object.assign({},cloud[m]||{},S[m]||{});});
  S.seedIds=[...new Set([...(cloud.seedIds||[]),...(S.seedIds||[])])];
  S._ts=Date.now();
+ rebuildSegShadow();
 }
 async function cloudPush(){try{await ensureSite();setSync("saving");
  let merged=false;
@@ -1041,7 +1049,7 @@ async function cloudPush(){try{await ensureSite();setSync("saving");
    if(cloud&&cloud._ts&&cloud._ts!==S._syncBase){mergeCloudInto(cloud);merged=true;}}
  }catch(e){console.warn("chequeo de merge falló, sigo con push directo",e);}
  const r=await graph("/sites/"+siteId+"/drive/root:/"+DATA_FILE+":/content",{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify(S)});
- if(r.ok){S._syncBase=S._ts;window.__dirty=false;localStorage.setItem(LS,JSON.stringify(S));if(merged){renderAll();setSync("synced","Fusioné cambios de otra sesión (nada se pisó)");}else setSync("synced");}
+ if(r.ok){S._syncBase=S._ts;window.__dirty=false;rebuildSegShadow();localStorage.setItem(LS,JSON.stringify(S));if(merged){renderAll();setSync("synced","Fusioné cambios de otra sesión (nada se pisó)");}else setSync("synced");}
  else setSync("error","No se pudo guardar en la nube");
  }catch(e){console.error(e);setSync("error","Error al guardar");}}
 async function dailyBackup(){try{
@@ -1053,7 +1061,7 @@ async function dailyBackup(){try{
  if(rb.ok){S._lastBackup=today;localStorage.setItem(LS,JSON.stringify(S));scheduleCloudPush();}
 }catch(e){console.warn("backup diario falló",e);}}
 
-renderAll();show("inst");restoreFolder();setSync("offline");initAuth();
+rebuildSegShadow();renderAll();show("inst");restoreFolder();setSync("offline");initAuth();
 window.addEventListener("beforeunload",function(){try{if(document.activeElement&&document.activeElement.blur)document.activeElement.blur();}catch(e){}if(account&&cloudReady&&window.__dirty){clearTimeout(pushTimer);try{cloudPush();}catch(e){}}});
 document.addEventListener("visibilitychange",function(){if(document.hidden&&account&&cloudReady&&window.__dirty){clearTimeout(pushTimer);try{cloudPush();}catch(e){}}});
 </script>
