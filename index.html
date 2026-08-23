@@ -169,7 +169,7 @@ const defaults={
 let S=load();
 function load(){try{const d=JSON.parse(localStorage.getItem(LS));return d?deepMerge(structuredClone(defaults),d):structuredClone(defaults);}catch(e){return structuredClone(defaults);}}
 function deepMerge(a,b){for(const k in b){if(b[k]&&typeof b[k]==="object"&&!Array.isArray(b[k]))deepMerge(a[k]=a[k]||{},b[k]);else a[k]=b[k];}return a;}
-function save(){S._ts=Date.now();localStorage.setItem(LS,JSON.stringify(S));scheduleCloudPush();}
+function save(){S._ts=Date.now();window.__dirty=true;localStorage.setItem(LS,JSON.stringify(S));scheduleCloudPush();}
 const money=n=>isFinite(n)?n.toLocaleString('es-AR',{minimumFractionDigits:2,maximumFractionDigits:2}):"–";
 const pct=n=>isFinite(n)?(n*100).toLocaleString('es-AR',{minimumFractionDigits:1,maximumFractionDigits:1})+"%":"–";
 const num=v=>{const n=parseFloat(v);return isFinite(n)?n:0;};
@@ -1041,7 +1041,7 @@ async function cloudPush(){try{await ensureSite();setSync("saving");
    if(cloud&&cloud._ts&&cloud._ts!==S._syncBase){mergeCloudInto(cloud);merged=true;}}
  }catch(e){console.warn("chequeo de merge falló, sigo con push directo",e);}
  const r=await graph("/sites/"+siteId+"/drive/root:/"+DATA_FILE+":/content",{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify(S)});
- if(r.ok){S._syncBase=S._ts;localStorage.setItem(LS,JSON.stringify(S));if(merged){renderAll();setSync("synced","Fusioné cambios de otra sesión (nada se pisó)");}else setSync("synced");}
+ if(r.ok){S._syncBase=S._ts;window.__dirty=false;localStorage.setItem(LS,JSON.stringify(S));if(merged){renderAll();setSync("synced","Fusioné cambios de otra sesión (nada se pisó)");}else setSync("synced");}
  else setSync("error","No se pudo guardar en la nube");
  }catch(e){console.error(e);setSync("error","Error al guardar");}}
 async function dailyBackup(){try{
@@ -1054,8 +1054,8 @@ async function dailyBackup(){try{
 }catch(e){console.warn("backup diario falló",e);}}
 
 renderAll();show("inst");restoreFolder();setSync("offline");initAuth();
-window.addEventListener("beforeunload",function(){try{if(document.activeElement&&document.activeElement.blur)document.activeElement.blur();}catch(e){}if(account&&cloudReady){clearTimeout(pushTimer);try{cloudPush();}catch(e){}}});
-document.addEventListener("visibilitychange",function(){if(document.hidden&&account&&cloudReady){clearTimeout(pushTimer);try{cloudPush();}catch(e){}}});
+window.addEventListener("beforeunload",function(){try{if(document.activeElement&&document.activeElement.blur)document.activeElement.blur();}catch(e){}if(account&&cloudReady&&window.__dirty){clearTimeout(pushTimer);try{cloudPush();}catch(e){}}});
+document.addEventListener("visibilitychange",function(){if(document.hidden&&account&&cloudReady&&window.__dirty){clearTimeout(pushTimer);try{cloudPush();}catch(e){}}});
 </script>
 </body>
 </html>
