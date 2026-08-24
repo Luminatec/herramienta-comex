@@ -423,11 +423,13 @@ async function findInvoiceItems(ix,dk){const r=S.seg[ix];const D=await embDocs(r
    else{if(typeof XLSX==='undefined')continue;const wb=XLSX.read(new Uint8Array(await (await f.get()).arrayBuffer()),{type:'array'});wb.SheetNames.forEach(sn=>{const it=detectItems(XLSX.utils.sheet_to_json(wb.Sheets[sn],{header:1,defval:''}),dk);if(it.length>best.length)best=it;});}
    if(best.length)return {items:best,file:n};
   }catch(e){}}return null;};
- const prv=all.filter(f=>esProveedor(f[0])&&!esFlete(f[0])).sort((a,b)=>(/\.pdf$/i.test(a[0])?1:0)-(/\.pdf$/i.test(b[0])?1:0));
- const inv=all.filter(f=>!esProveedor(f[0])&&!esFlete(f[0])&&score(f[0])>0).sort((a,b)=>score(b[0])-score(a[0]));
- const xls=all.filter(f=>/\.xlsx?$/i.test(f[0])&&!esProveedor(f[0])&&!esFlete(f[0])&&score(f[0])<=0&&!/coste|costo/i.test(f[0]));
+ const esDetalle=n=>/detalle/i.test(n)&&/\.xlsx?$/i.test(n);
+ const det=all.filter(f=>esDetalle(f[0]));
+ const prv=all.filter(f=>esProveedor(f[0])&&!esFlete(f[0])&&!esDetalle(f[0])).sort((a,b)=>(/\.pdf$/i.test(a[0])?1:0)-(/\.pdf$/i.test(b[0])?1:0));
+ const inv=all.filter(f=>!esProveedor(f[0])&&!esFlete(f[0])&&!esDetalle(f[0])&&score(f[0])>0).sort((a,b)=>score(b[0])-score(a[0]));
+ const xls=all.filter(f=>/\.xlsx?$/i.test(f[0])&&!esProveedor(f[0])&&!esFlete(f[0])&&!esDetalle(f[0])&&score(f[0])<=0&&!/coste|costo/i.test(f[0]));
  const pdfs=all.filter(f=>/\.pdf$/i.test(f[0])&&!esFlete(f[0])&&score(f[0])<=0);
- for(const list of [prv,inv,xls,pdfs]){const res=await parse(list);if(res)return res;}
+ for(const list of [det,prv,inv,xls,pdfs]){const res=await parse(list);if(res)return res;}
  return {items:[],file:null};}
 async function autoFillFromFolder(ix,c){const dk=c==='ar'?'der':'adv';const res=await findInvoiceItems(ix,dk);const best=(res&&res.items)?res.items:[];if(!best.length)return 0;if(c==='ar')learnFillProd(best);S[c].items=best;save();setTimeout(()=>alert(best.length+' ítems traídos de "'+res.file+'".\nRevisá % de derecho (el IVA se autocompleta del maestro por SKU).'),80);return best.length;}
 function traerDeCarpeta(){if(!costeoCtx)return;if(!fsGranted){alert('Primero conectá la carpeta de documentos en Seguimiento.');return;}autoFillFromFolder(costeoCtx.ix,costeoCtx.c).then(n=>{if(n){renderAR();renderPE();}else alert('No pude leer automáticamente una factura de PETDUR (Excel o PDF de texto) en la carpeta. Podés usar "Importar factura" o cargar los ítems a mano.');});}
