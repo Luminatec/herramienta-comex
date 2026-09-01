@@ -600,7 +600,7 @@ function renderSeg(){
  const opt2=(arr,v)=>arr.map(o=>`<option ${o===v?'selected':''}>${o}</option>`).join('');
  const fbar=`<span class="muted small">☁ Documentos en SharePoint (compartidos — no hace falta conectar carpeta).</span> <button class="mini" onclick="autoMarkAllDocs()">🔎 Detectar en toda la carpeta</button>`+(FSA?(fsGranted?` <span class="muted small">· 📁 local: ${dirHandle?dirHandle.name:'—'}</span> <button class="mini sec" onclick="migrarASharePoint()">☁ Migrar local → SharePoint</button> <button class="mini sec" onclick="diagCarpeta()">🔍 Diagnóstico</button> <button class="mini sec" onclick="connectFolder()">Reconectar</button>`:` <button class="mini sec" onclick="connectFolder()">📁 Conectar carpeta local (opcional, para migrar)</button>`):``);
  const tools=`<h2>Seguimiento de embarques</h2>${panelHTML()}
- <div class="tools"><button onclick="newSeg()">+ Nuevo embarque</button><button class="sec" onclick="document.getElementById('imp-seg').click()">⇪ Importar (CSV)</button><input type="file" id="imp-seg" style="display:none" accept=".csv" onchange="importSegFile(event)"><button class="sec" onclick="segTpl()">Plantilla</button><button class="sec" onclick="exportCSV()">Exportar CSV</button><button class="sec" onclick="exportSegXlsx()">⬇ Excel</button></div>
+ <div class="tools"><button onclick="newSeg()">+ Nuevo embarque</button><button class="sec" onclick="document.getElementById('imp-seg').click()">⇪ Importar (CSV)</button><input type="file" id="imp-seg" style="display:none" accept=".csv" onchange="importSegFile(event)"><button class="sec" onclick="segTpl()">Plantilla</button><button class="sec" onclick="exportCSV()">Exportar CSV</button><button class="sec" onclick="exportSegXlsx()">⬇ Excel</button><button class="sec" onclick="abrirSharePoint()">☁ Abrir SharePoint</button></div>
  <div class="tools">${fbar}</div>
  <div class="tools filterbar"><input id="fq" placeholder="Buscar: ID, producto, proveedor, notas…" value="${segFilter.q.replace(/"/g,'&quot;')}" oninput="setFilter('q',this.value)"><select onchange="setFilter('pais',this.value)"><option value="">País (todos)</option>${opt2(PAISES,segFilter.pais)}</select><select onchange="setFilter('estado',this.value)"><option value="">Estado (todos)</option>${opt2(ESTADOS,segFilter.estado)}</select><button class="sec" onclick="clearFilter()">Limpiar</button></div>`;
  document.getElementById("tab-seg").innerHTML=tools+`<div class="mobwarn">📱 En el celular podés consultar, costear y editar todo. La carpeta de documentos (detectar/abrir archivos) funciona solo en la computadora.</div><div id="segBoard"></div><p class="muted">Tocá una tarjeta para ver o editar. El arribo y las alertas se colorean solos. Recordá “Exportar respaldo” cada tanto.</p>`;
@@ -1018,6 +1018,16 @@ async function initAuth(){if(typeof msal==="undefined"){setSync("error","No se c
 async function login(){if(!msalApp){alert("El login no está disponible. Si abriste el archivo con doble clic, cerralo y entrá desde la dirección web https://luminatec.github.io/herramienta-comex/ — el inicio de sesión de Microsoft sólo funciona por HTTPS, no con el archivo local.");return;}try{setSync("connecting");await msalApp.loginRedirect({scopes:GRAPH_SCOPES});}catch(e){alert("No se pudo iniciar sesión: "+e.message);}}
 async function logout(){try{await msalApp.logoutRedirect();}catch(e){}}
 async function getToken(){try{const r=await msalApp.acquireTokenSilent({scopes:GRAPH_SCOPES,account});return r.accessToken;}catch(e){const r=await msalApp.acquireTokenPopup({scopes:GRAPH_SCOPES});return r.accessToken;}}
+async function abrirSharePoint(){
+ const fb='https://'+SP_HOST+SP_SITE;
+ try{
+  if(!account){window.open(fb,'_blank');return;}
+  await ensureSite();
+  const rid=await spComexRoot(false);
+  if(rid){const r=await graph("/sites/"+siteId+"/drive/items/"+rid+"?$select=webUrl");const j=await r.json();if(j&&j.webUrl){window.open(j.webUrl,'_blank');return;}}
+  window.open(fb,'_blank');
+ }catch(e){window.open(fb,'_blank');}
+}
 async function graph(path,opts){opts=opts||{};const t=await getToken();
  const method=(opts.method||"GET").toUpperCase();
  const headers=Object.assign({Authorization:"Bearer "+t},opts.headers||{});
