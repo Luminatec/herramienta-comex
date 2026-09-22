@@ -964,6 +964,43 @@ async function openDoc(id,name){
  try{if(await spReady()){const fi=await spEmbItem(id,false);if(fi){const k=(await spKids(fi)).find(x=>x.name===name);if(k){if(k.webUrl){window.open(k.webUrl,'_blank');return;}const b=await spBlob(k.id);window.open(URL.createObjectURL(b),'_blank');return;}}}}catch(e){}
  try{const dh=await findSub(id);if(dh){const fh=await dh.getFileHandle(name);const f=await fh.getFile();window.open(URL.createObjectURL(f),'_blank');}}catch(x){}}
 function dispoHTML(){const d=S.dispo||{};const items=(d.items||[]).filter(it=>!peruMode()||/^LUPE/i.test((it.ref||'')));if(!items.length)return '';const giros=d.giros||[];const norm=s=>String(s||'').toLowerCase().replace(/\s+/g,'');const giradoFor=it=>giros.filter(g=>{const gk=norm(g.fac)||norm(g.ref);if(!gk)return false;const fk=norm(it.fac),rk=norm(it.ref);return (fk&&(fk===gk||fk.includes(gk)||gk.includes(fk)))||(rk&&(rk===gk||rk.includes(gk)||gk.includes(rk)));}).reduce((a,g)=>a+num(g.monto),0);let tM=0,tG=0,tS=0;const rows=items.map(it=>{const g=giradoFor(it);const s=num(it.monto)-g;tM+=num(it.monto);tG+=g;tS+=s;return `<tr><td>${it.fecha||''}</td><td>${it.ref||''}${it.nota?' <span class="muted">('+it.nota+')</span>':''}</td><td>${it.fac||''}</td><td>${it.banco||''}</td><td class="right">${money(it.monto)}</td><td class="right">${g?money(g):'—'}</td><td class="right"><b style="color:${s<=0?'#3a7d34':s<num(it.monto)?'#c0662e':'var(--navy)'}">${money(s)}</b></td></tr>`;}).join('');return `<div class="card"><h3>💵 Disponibilidad de pagos — giros al exterior</h3><p class="muted">Fondos disponibles para girar al exterior de embarques ya <b>nacionalizados</b>. Solo se puede girar desde el <b>banco con el que se pagó el VEP</b> de nacionalización. A medida que se detectan giros (por Nº de factura Petdur / despacho / embarque) se van restando del monto hasta llegar a cero.</p><table><tr><th>Fecha de giro</th><th>Embarque</th><th>Nº FAC</th><th>Banco</th><th class="right">Monto USD</th><th class="right">Girado</th><th class="right">Saldo</th></tr>${rows}<tr style="border-top:2px solid var(--navy);font-weight:bold"><td colspan="4">TOTAL</td><td class="right">${money(tM)}</td><td class="right">${money(tG)}</td><td class="right">${money(tS)}</td></tr></table></div>`;}
+const IMPINT_FALLBACK={"8519.81.90.900B":0.19};
+function ncmInfo(n){return ((S.ncm&&S.ncm.pos)||[]).find(p=>p.ncm===n)||{};}
+function computeNac(r){
+ const mix=(r&&r.ncmMix)||[];if(!mix.length)return null;
+ const b=(S.ncm&&S.ncm.base)||{},P=S.params||{};
+ const sumFob=mix.reduce((s,m)=>s+(+m.fob||0),0);if(!sumFob)return null;
+ const VA=(+r.nacVA)||sumFob*(1+((b.fletePctDefault||0)+(b.seguroPct||0))/100);
+ const up=VA/sumFob;
+ const pIvaG=P.ar_pIva!=null?P.ar_pIva:0.20,pIvaR=P.ar_pIvaR!=null?P.ar_pIvaR:0.10,pGanR=P.ar_pGan!=null?P.ar_pGan:0.06;
+ const presun=b.impIntPresun||1.30;
+ let derechos=0,tasaBase=0;
+ const its=mix.map(m=>{const i=ncmInfo(m.ncm);const va=(+m.fob||0)*up;const di=(i.di||0)/100;const der=va*di;derechos+=der;const tt=(i.tasaEst||0)>0;if(tt)tasaBase+=va;const impN=(i.impIntNom!=null?i.impIntNom:(IMPINT_FALLBACK[m.ncm]||0));return{va,der,iva:(i.iva||0)/100,tt,impN};});
+ let tasa=0;if(tasaBase>0){let cap=Infinity;for(const a of(b.tasaEstEscala||[])){if(tasaBase<=a[0]){cap=a[1];break;}}tasa=Math.min(tasaBase*((b.tasaEstPct||3)/100),cap);}
+ let iva=0,pIva=0,pGan=0,impInt=0,sumVA=0;
+ its.forEach(x=>{const tShare=(tasaBase>0&&x.tt)?tasa*(x.va/tasaBase):0;const baseIva=x.va+x.der+tShare;sumVA+=x.va;iva+=baseIva*x.iva;const perc=(x.iva>=0.20)?pIvaG:pIvaR;pIva+=baseIva*perc;pGan+=baseIva*pGanR;if(x.impN>0)impInt+=baseIva*(x.impN/(1-x.impN))*presun;});
+ const iibb=(sumVA+derechos+tasa)*((b.iibbPct||0)/100);
+ const sim=b.aranSIM||10;
+ const noRecup=derechos+tasa+sim,credito=iva+iibb+pIva+pGan+impInt;
+ return{VA,derechos,tasa,sim,iva,pIva,pGan,iibb,impInt,noRecup,credito,desembolso:noRecup+credito};
+}
+function nacPanelHTML(){
+ if(typeof peruMode==='function'&&peruMode())return '';
+ const seg=S.seg.filter(resMatch);
+ const act=seg.filter(r=>r.pais==='Argentina'&&r.estado!=='Entregado'&&(r.ncmMix||[]).length);
+ let rows='',T={va:0,nr:0,iva:0,pi:0,pg:0,ii:0,ib:0,de:0};
+ act.forEach(r=>{const c=computeNac(r);if(!c)return;T.va+=c.VA;T.nr+=c.noRecup;T.iva+=c.iva;T.pi+=c.pIva;T.pg+=c.pGan;T.ii+=c.impInt;T.ib+=c.iibb;T.de+=c.desembolso;
+  rows+=`<tr><td><b>${r.id}</b><div class="muted" style="font-size:11px">${String(r.prod||'').slice(0,26)}</div></td><td class="right">${money(c.VA)}</td><td class="right">${money(c.noRecup)}</td><td class="right">${money(c.iva)}</td><td class="right">${money(c.pIva)}</td><td class="right">${money(c.pGan)}</td><td class="right">${c.impInt?money(c.impInt):'–'}</td><td class="right">${money(c.iibb)}</td><td class="right"><b>${money(c.desembolso)}</b></td></tr>`;});
+ if(!rows)return '';
+ const head=`<tr><th>Embarque</th><th class="right">Valor aduana</th><th class="right">No recup.</th><th class="right">IVA</th><th class="right">Perc. IVA</th><th class="right">Perc. Gan.</th><th class="right">Imp. int.</th><th class="right">IIBB</th><th class="right">Desembolso est.</th></tr>`;
+ const tot=`<tr style="border-top:2px solid #cbd6d3;font-weight:600"><td>Total (${act.length})</td><td class="right">${money(T.va)}</td><td class="right">${money(T.nr)}</td><td class="right">${money(T.iva)}</td><td class="right">${money(T.pi)}</td><td class="right">${money(T.pg)}</td><td class="right">${T.ii?money(T.ii):'–'}</td><td class="right">${money(T.ib)}</td><td class="right">${money(T.de)}</td></tr>`;
+ const nz=seg.filter(r=>r.pais==='Argentina'&&r.nacReal&&r.nacReal.desembolso!=null);
+ let calib='';
+ if(nz.length){let cr='';nz.forEach(r=>{const est=(r.nacEstSnap!=null?r.nacEstSnap:r.nacEst);const real=r.nacReal.desembolso;const gap=(est!=null&&est!=0)?((real-est)/est*100):null;const va=r.nacReal.VA;const pie=va?r.nacReal.pIva/va*100:null,pge=va?r.nacReal.pGan/va*100:null;
+   cr+=`<tr><td><b>${r.id}</b></td><td class="right">${est!=null?money(est):'–'}</td><td class="right">${money(real)}</td><td class="right">${gap!=null?gap.toFixed(1)+'%':'–'}</td><td class="right">${pie!=null?pie.toFixed(2)+'%':'–'}</td><td class="right">${pge!=null?pge.toFixed(2)+'%':'–'}</td></tr>`;});
+  calib=`<h3 style="margin:14px 0 4px">Calibración · estimado vs despacho real</h3><table><tr><th>Embarque</th><th class="right">Estimado</th><th class="right">Real (desemb.)</th><th class="right">Brecha</th><th class="right">Perc. IVA ef.</th><th class="right">Perc. Gan. ef.</th></tr>${cr}</table><p class="muted">Brecha positiva = el real superó a la estimación. Las percepciones efectivas sobre el valor en aduana muestran si el certificado de exclusión de Petdur sigue vigente (plenas ≈ 4,4% IVA + 6% Gan; con certificado bajan a ~2%).</p>`;}
+ return `<div class="panel"><h2 style="margin-top:0">Nacionalización estimada (Argentina)</h2><table>${head}${rows}${tot}</table><p class="muted">Todo en USD. <b>No recuperable</b> (derechos + tasa estadística + arancel SIM) es lo único que queda como costo del producto; IVA, percepciones (IVA y Ganancias), IIBB e impuestos internos son crédito fiscal / pago a cuenta recuperable. Percepciones estimadas al máximo (20%/10% IVA por tramo + 6% Ganancias); el desembolso real de Petdur suele ser menor por el certificado de exclusión. Impuestos internos: solo audio Bluetooth (se acrecienta la base de IVA y se aplica la presunción de importación).</p>${calib}</div>`;
+}
 function renderResumen(){const seg=S.seg.filter(resMatch);const activos=seg.filter(r=>r.estado!=="Entregado");
  const byPais=p=>activos.filter(r=>r.pais===p);const val=arr=>arr.reduce((s,r)=>s+num(r.costEst),0);
  const saldoPend=seg.reduce((s,r)=>s+(r.pagos||[]).filter(p=>!p.pagado).reduce((a,p)=>a+num(p.monto),0),0);
@@ -978,6 +1015,7 @@ function renderResumen(){const seg=S.seg.filter(resMatch);const activos=seg.filt
   ${timelineHTML()}
   <div class="grid">${!peruMode()?paisPanel('Argentina'):''}${paisPanel('Perú')}</div>
   ${dispoHTML()}
+  ${nacPanelHTML()}
   <p class="muted">"Valor provisorio en curso" usa el costo estimado de cada embarque activo. "Pagos a proveedor pendientes" suma los pagos al proveedor todavía no abonados. La "Nacionalización est. 0–15 / 16–30 / 31–60 días" son <b>tramos separados</b> (no se solapan): cada uno suma el costo estimado de nacionalización (aranceles, impuestos y gastos) de los embarques que <b>arriban</b> en ese rango de días. El tramo 0–15 incluye arribos vencidos. Un tramo en cero significa que no hay arribos en esa ventana. Los pagos con fecha aparecen en la línea de tiempo de arriba.</p>`;}
 function maestroSKUs(){const s=new Set([...Object.keys(S.ivaMaster||{}),...Object.keys(S.derMaster||{}),...Object.keys(S.ncmMaster||{}),...Object.keys(S.descMaster||{})]);return [...s].sort();}
 function renderMaestro(){const rows=maestroSKUs().map(sk=>`<tr><td><b>${sk}</b></td><td><input class="in" style="width:220px" value="${((S.descMaster||{})[sk]||'').replace(/"/g,'&quot;')}" onchange="setMaestro('${sk}','desc',this.value)"></td><td><input class="in" style="width:120px" value="${(S.ncmMaster||{})[sk]||''}" onchange="setMaestro('${sk}','ncm',this.value)"></td><td><input class="in" style="width:80px" value="${(S.derMaster||{})[sk]!=null?(S.derMaster[sk]*100):''}" onchange="setMaestro('${sk}','der',this.value)"></td><td><input class="in" style="width:80px" value="${(S.ivaMaster||{})[sk]!=null?(S.ivaMaster[sk]*100):''}" onchange="setMaestro('${sk}','iva',this.value)"></td><td><button class="mini sec" onclick="delMaestro('${sk}')">✕</button></td></tr>`).join('');
