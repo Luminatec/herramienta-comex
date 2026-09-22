@@ -550,6 +550,8 @@ function renderPE(){
 
 // ---------- Seguimiento ----------
 const ESTADOS=["Orden de compra","En producción","Embarcado","En tránsito","Arribado","En despacho","Nacionalizado","Entregado"];
+function normEstado(e){if(e==null)return e;var s=(''+e).trim();if(!s)return s;var k=s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'');for(var i=0;i<ESTADOS.length;i++){if(ESTADOS[i].toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'')===k)return ESTADOS[i];}return s;}
+function normalizeEstados(){var n=0;(S.seg||[]).forEach(function(r){if(!r||r.estado==null)return;var v=normEstado(r.estado);if(v!==r.estado){r.estado=v;n++;}});return n;}
 const DOC_CAT=[["orden","Orden / Reserva",0],["proforma","Factura proforma",1],["fcprov","Factura comercial del proveedor",2],["swift","Swift / comprobante de pago a proveedor",2],["packing","Packing list",2],["bl","BL / HBL",2],["fflete","Factura de flete / agente de carga",3],["aviso","Aviso de llegada",4],["despacho","Despacho / DI (provisorio)",5],["fterminal","Factura de terminal",5],["gastos","Gastos de agente / honorarios",5],["dioficial","DI oficializada",6],["boletas","Boletas de pago de impuestos",6],["liquid","Liquidación final del despachante",6]];
 const DOC_CAT_PE=[["orden","Orden / Reserva",0],["profprov","Proforma del proveedor",0],["profpt","Proforma de Petdur (fee 3%)",1],["fcpt","Factura comercial definitiva (Petdur)",2],["mtc","Trámite MTC (Wi-Fi/BT, si aplica)",3],["bl","BL / HBL",3],["certorig","Certificado de origen (China, salvo negociadas)",3],["profgastos","Proforma de gastos (Monteverde)",3],["destino","Destinación aduanera definida",4],["fondos","Transferencia de fondos a Monteverde",4],["dam","DAM / Despacho de importación",5],["levante","Levante / retiro",6],["liquid","Liquidación final de gastos",6]];
 function docCat(r){return (r&&r.pais==='Perú')?DOC_CAT_PE:DOC_CAT;}
@@ -619,7 +621,7 @@ function renderBoard(){const el=document.getElementById('segBoard');if(!el)retur
   const act=all.filter(ix=>S.seg[ix].estado!=="Entregado");
   const done=all.filter(ix=>S.seg[ix].estado==="Entregado");
   body+=`<div class="paish paish-${paisCls(p)}">${paisFlag(p)} ${p} <span class="paishn">· ${act.length} activo${act.length!==1?'s':''}</span></div>`;
-  const groups={};act.forEach(ix=>{const e=S.seg[ix].estado||"Sin estado";(groups[e]=groups[e]||[]).push(ix);});
+  const groups={};act.forEach(ix=>{let e=S.seg[ix].estado||"Sin estado";if(e!=="Sin estado"&&ESTADOS.indexOf(e)<0)e="Sin estado";(groups[e]=groups[e]||[]).push(ix);});
   ESTADOS.concat(["Sin estado"]).forEach(e=>{if(e==="Entregado"||!groups[e])return;body+=`<div class="segh" style="border-color:${estadoColor(e)}">${e} <span class="muted">· ${groups[e].length}</span></div><div class="cards">`;groups[e].forEach(ix=>body+=card(ix));body+=`</div>`;});
   if(!act.length)body+=`<p class="muted" style="margin:4px 0 0">Sin embarques activos.</p>`;
   if(done.length){
@@ -1005,7 +1007,7 @@ function importAlias(e){const f=e.target.files[0];if(!f)return;
  e.target.value='';}
 function exportMaestro(){const aoa=[['SKU','Descripción','NCM','Derecho %','IVA %']];maestroSKUs().forEach(sk=>aoa.push([sk,(S.descMaster||{})[sk]||'',(S.ncmMaster||{})[sk]||'',(S.derMaster||{})[sk]!=null?S.derMaster[sk]*100:'',(S.ivaMaster||{})[sk]!=null?S.ivaMaster[sk]*100:'']));
  if(typeof XLSX!=='undefined'){const ws=XLSX.utils.aoa_to_sheet(aoa);const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'Maestro');XLSX.writeFile(wb,'Maestro_productos.xlsx');}else{const csv=aoa.map(r=>r.map(x=>'"'+String(x==null?'':x).replace(/"/g,'""')+'"').join(',')).join('\n');dl(new Blob(['﻿'+csv],{type:'text/csv'}),'Maestro_productos.csv');}}
-function renderAll(){[['param',renderParam],['pe',renderPE],['ar',renderAR],['seg',renderSeg],['resumen',renderResumen],['maestro',renderMaestro]].forEach(function(x){try{x[1]();}catch(e){console.error('render '+x[0]+' falló:',e);var el=document.getElementById('tab-'+x[0]);if(el)el.innerHTML='<div class="note" style="border-color:#c0662e">No se pudo dibujar esta sección ('+(e.message||e)+'). El resto de la herramienta sigue funcionando; avisá para corregirlo.</div>';}});applyScope();}
+function renderAll(){try{if(normalizeEstados())save();}catch(_e){}[['param',renderParam],['pe',renderPE],['ar',renderAR],['seg',renderSeg],['resumen',renderResumen],['maestro',renderMaestro]].forEach(function(x){try{x[1]();}catch(e){console.error('render '+x[0]+' falló:',e);var el=document.getElementById('tab-'+x[0]);if(el)el.innerHTML='<div class="note" style="border-color:#c0662e">No se pudo dibujar esta sección ('+(e.message||e)+'). El resto de la herramienta sigue funcionando; avisá para corregirlo.</div>';}});applyScope();}
 function seedPagos(){if(S.seededPagos)return;const map={};S.seg.forEach(r=>{if(map[r.id]&&(!r.pagos||!r.pagos.length))r.pagos=map[r.id];});S.seededPagos=true;save();}
 
 // ---------- Login M365 (MSAL) + sincronización SharePoint (Graph) ----------
