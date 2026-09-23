@@ -199,7 +199,9 @@ const tabs=[["inst","Instrucciones"],["param","Parámetros"],["pe","Costeo Perú
 const nav=document.getElementById("nav");
 tabs.forEach(([id,label])=>{const b=document.createElement("button");b.textContent=label;b.onclick=()=>show(id);b.id="nav-"+id;nav.appendChild(b);});
 function show(id){tabs.forEach(([t])=>{document.getElementById("tab-"+t).classList.toggle("active",t===id);document.getElementById("nav-"+t).classList.toggle("active",t===id);});}
-const PERU_ONLY=["gmalqui@luminatec.com","lfigueroa@luminatec.com"];
+const PERU_ONLY=["gmalqui@luminatec.com","lfigueroa@luminatec.com","apinas@luminatec.com"];
+const VIEWERS=["apinas@luminatec.com"];
+function isViewer(){try{return !!account&&VIEWERS.includes(((account.username||"")+"").toLowerCase());}catch(e){return false;}}
 function peruMode(){try{return !!account&&PERU_ONLY.includes(((account.username||"")+"").toLowerCase());}catch(e){return false;}}
 function applyScope(){const pm=peruMode();const hidden={inst:pm,param:pm,ar:pm,maestro:pm};tabs.forEach(([id])=>{const b=document.getElementById("nav-"+id);if(b)b.style.display=hidden[id]?"none":"";});if(pm){const active=tabs.find(([t])=>{const b=document.getElementById("nav-"+t);return b&&b.classList.contains("active");});if(!active||hidden[active[0]])show("seg");}}
 
@@ -1143,7 +1145,7 @@ function mergeCloudInto(cloud){
  S._ts=Date.now();
  rebuildSegShadow();
 }
-async function cloudPush(force){try{await ensureSite();setSync("saving");
+async function cloudPush(force){try{if(typeof isViewer==='function'&&isViewer()){setSync("synced","Modo consulta (solo lectura)");window.__dirty=false;return false;}await ensureSite();setSync("saving");
  const _v=(function(){try{return validateS();}catch(e){return{errs:[],warns:[]};}})();if(_v.errs.length){setSync("error","No sincronizo: "+_v.errs.length+" problema(s) de datos (ver consola)");console.error("Push bloqueado por validacion:",_v.errs);return false;}
  const PATH="/sites/"+siteId+"/drive/root:/"+DATA_FILE+":/content";
  for(let attempt=1;attempt<=4;attempt++){
