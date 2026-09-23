@@ -1097,19 +1097,33 @@ function mergeCloudInto(cloud){
  S.dispo.giros=Object.values(gb);
  ['ivaMaster','derMaster','ncmMaster','descMaster','aliasMap'].forEach(m=>{S[m]=Object.assign({},cloud[m]||{},S[m]||{});});
  S.seedIds=[...new Set([...(cloud.seedIds||[]),...(S.seedIds||[])])];
+ if(cloud.ncm){S.ncm=S.ncm||{};S.ncm.base=Object.assign({},cloud.ncm.base||{},S.ncm.base||{});const pb={};(cloud.ncm.pos||[]).forEach(p=>{if(p&&p.ncm)pb[p.ncm]=p;});(S.ncm.pos||[]).forEach(p=>{if(p&&p.ncm)pb[p.ncm]=p;});S.ncm.pos=Object.values(pb);}
+ {const seen={},arr=[];[...(cloud.ncmAudit||[]),...(S.ncmAudit||[])].forEach(e=>{const k=JSON.stringify(e);if(!seen[k]){seen[k]=1;arr.push(e);}});S.ncmAudit=arr;}
+ S.params=Object.assign({},cloud.params||{},S.params||{});
+ if(cloud.tcInfo){const ct=cloud.tcInfo,lt=S.tcInfo||{};S.tcInfo=((lt.ts||'')>=(ct.ts||''))?lt:ct;}
  S._ts=Date.now();
  rebuildSegShadow();
 }
 async function cloudPush(){try{await ensureSite();setSync("saving");
- let merged=false;
- try{const g=await graph("/sites/"+siteId+"/drive/root:/"+DATA_FILE+":/content");
-  if(g.status===200){const cloud=await g.json();
-   if(cloud&&cloud._ts&&cloud._ts!==S._syncBase){mergeCloudInto(cloud);merged=true;}}
- }catch(e){console.warn("chequeo de merge falló, sigo con push directo",e);}
- const r=await graph("/sites/"+siteId+"/drive/root:/"+DATA_FILE+":/content",{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify(S)});
- if(r.ok){S._syncBase=S._ts;window.__dirty=false;rebuildSegShadow();localStorage.setItem(LS,JSON.stringify(S));if(merged){renderAll();setSync("synced","Fusioné cambios de otra sesión (nada se pisó)");}else setSync("synced");}
- else setSync("error","No se pudo guardar en la nube");
- }catch(e){console.error(e);setSync("error","Error al guardar");}}
+ const PATH="/sites/"+siteId+"/drive/root:/"+DATA_FILE+":/content";
+ for(let attempt=1;attempt<=4;attempt++){
+  let merged=false,etag=null;
+  try{const g=await graph(PATH);
+   if(g.status===200){const cloud=await g.json();etag=g.headers.get("etag")||g.headers.get("ETag")||null;
+    if(!etag){try{const m=await (await graph("/sites/"+siteId+"/drive/root:/"+DATA_FILE)).json();etag=m.eTag||m["@odata.etag"]||null;}catch(_){}}
+    if(cloud&&cloud._ts&&cloud._ts!==S._syncBase){mergeCloudInto(cloud);merged=true;}}
+  }catch(e){console.warn("chequeo de merge/etag fallo, push directo",e);}
+  const hdr={"Content-Type":"application/json"};if(etag)hdr["If-Match"]=etag;
+  try{const r=await graph(PATH,{method:"PUT",headers:hdr,body:JSON.stringify(S)});
+   if(r.ok){S._syncBase=S._ts;window.__dirty=false;rebuildSegShadow();localStorage.setItem(LS,JSON.stringify(S));if(merged){renderAll();setSync("synced","Fusione cambios de otra sesion (nada se piso)");}else setSync("synced");return true;}
+   setSync("error","No se pudo guardar en la nube");return false;
+  }catch(e){
+   if(e&&e.status===412){console.warn("If-Match 412 (la nube cambio), reintento "+attempt);await new Promise(res=>setTimeout(res,300));continue;}
+   throw e;
+  }
+ }
+ setSync("error","Conflicto persistente al guardar; reintenta");return false;
+ }catch(e){console.error(e);setSync("error","Error al guardar");return false;}}
 async function dailyBackup(){try{
  if(!account)return;
  const today=new Date().toISOString().slice(0,10);
