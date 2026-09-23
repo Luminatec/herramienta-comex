@@ -1017,6 +1017,10 @@ function nacPanelHTML(){
   calib=`<h3 style="margin:14px 0 4px">Calibración · estimado vs despacho real</h3><table><tr><th>Embarque</th><th class="right">Estimado</th><th class="right">Real (desemb.)</th><th class="right">Brecha</th><th class="right">Perc. IVA ef.</th><th class="right">Perc. Gan. ef.</th></tr>${cr}</table><p class="muted">Brecha positiva = el real superó a la estimación. Las percepciones efectivas sobre el valor en aduana muestran si el certificado de exclusión de Petdur sigue vigente (plenas ≈ 4,4% IVA + 6% Gan; con certificado bajan a ~2%).</p>`;}
  return `<div class="panel"><h2 style="margin-top:0">Nacionalización estimada (Argentina)</h2><table>${head}${rows}${tot}</table><p class="muted">Todo en USD. <b>No recuperable</b> (derechos + tasa estadística + arancel SIM) es lo único que queda como costo del producto; IVA, percepciones (IVA y Ganancias), IIBB e impuestos internos son crédito fiscal / pago a cuenta recuperable. Percepciones estimadas al máximo (20%/10% IVA por tramo + 6% Ganancias); el desembolso real de Petdur suele ser menor por el certificado de exclusión. Impuestos internos: solo audio Bluetooth (se acrecienta la base de IVA y se aplica la presunción de importación).</p>${calib}</div>`;
 }
+async function listBackupFiles(){await ensureSite();const j=await (await graph("/sites/"+siteId+"/drive/root/children?$top=200&$select=name,lastModifiedDateTime")).json();return (j.value||[]).filter(f=>/^comex_(backup_.*|data\.prev)\.json$/i.test(f.name)).sort((a,b)=>(''+(b.lastModifiedDateTime||'')).localeCompare(''+(a.lastModifiedDateTime||'')));}
+async function loadBackupList(){const m=document.getElementById('bk-msg');try{if(m)m.textContent='Buscando respaldos...';const fs=await listBackupFiles();const sel=document.getElementById('bk-sel');if(sel)sel.innerHTML=fs.map(f=>'<option value="'+f.name+'">'+f.name+' ('+(''+(f.lastModifiedDateTime||'')).slice(0,10)+')</option>').join('');const w=document.getElementById('bk-wrap');if(w)w.style.display=fs.length?'inline':'none';if(m)m.textContent=fs.length?(fs.length+' respaldo(s) disponibles'):'No hay respaldos todavia.';}catch(e){if(m)m.textContent='No se pudo listar: '+e;}}
+async function doRestore(name){if(!name)return;if(!confirm('Restaurar "'+name+'"? Reemplaza TODOS los datos actuales por los de ese respaldo. El estado actual se guarda antes como comex_data.prev.json y tambien es restaurable.'))return;const m=document.getElementById('bk-msg');try{if(m)m.textContent='Restaurando...';await ensureSite();const data=await (await graph("/sites/"+siteId+"/drive/root:/"+encodeURIComponent(name)+":/content")).json();if(!data||!data.seg){alert('El respaldo no parece valido (sin embarques).');if(m)m.textContent='Respaldo invalido.';return;}S=deepMerge(structuredClone(defaults),data);save();try{if(typeof pushTimer!=='undefined')clearTimeout(pushTimer);}catch(e){}await cloudPush(true);try{if(typeof pushTimer!=='undefined')clearTimeout(pushTimer);}catch(e){}renderAll();if(m)m.textContent='Restaurado desde '+name+'.';alert('Restaurado desde '+name+'.');}catch(e){if(m)m.textContent='No se pudo restaurar: '+e;alert('No se pudo restaurar: '+e);}}
+function backupPanelHTML(){if(typeof peruMode==='function'&&peruMode())return '';return `<div class="panel"><h3 style="margin-top:0">Respaldos y restauracion</h3><p class="muted">Antes de cada sincronizacion se guarda el estado anterior como <b>comex_data.prev.json</b>; ademas hay un respaldo por dia. Podes volver a cualquiera (el estado actual se respalda antes de restaurar).</p><button onclick="loadBackupList()">Ver respaldos</button> <span id="bk-wrap" style="display:none"><select id="bk-sel" style="min-width:280px"></select> <button class="sec" onclick="doRestore(document.getElementById('bk-sel').value)">Restaurar seleccionado</button></span><div id="bk-msg" class="muted" style="margin-top:6px"></div></div>`;}
 function renderResumen(){const seg=S.seg.filter(resMatch);const activos=seg.filter(r=>r.estado!=="Entregado");
  const byPais=p=>activos.filter(r=>r.pais===p);const val=arr=>arr.reduce((s,r)=>s+num(r.costEst),0);
  const saldoPend=seg.reduce((s,r)=>s+(r.pagos||[]).filter(p=>!p.pagado).reduce((a,p)=>a+num(p.monto),0),0);
@@ -1032,6 +1036,7 @@ function renderResumen(){const seg=S.seg.filter(resMatch);const activos=seg.filt
   <div class="grid">${!peruMode()?paisPanel('Argentina'):''}${paisPanel('Perú')}</div>
   ${dispoHTML()}
   ${nacPanelHTML()}
+  ${backupPanelHTML()}
   <p class="muted">"Valor provisorio en curso" usa el costo estimado de cada embarque activo. "Pagos a proveedor pendientes" suma los pagos al proveedor todavía no abonados. La "Nacionalización est. 0–15 / 16–30 / 31–60 días" son <b>tramos separados</b> (no se solapan): cada uno suma el costo estimado de nacionalización (aranceles, impuestos y gastos) de los embarques que <b>arriban</b> en ese rango de días. El tramo 0–15 incluye arribos vencidos. Un tramo en cero significa que no hay arribos en esa ventana. Los pagos con fecha aparecen en la línea de tiempo de arriba.</p>`;}
 function maestroSKUs(){const s=new Set([...Object.keys(S.ivaMaster||{}),...Object.keys(S.derMaster||{}),...Object.keys(S.ncmMaster||{}),...Object.keys(S.descMaster||{})]);return [...s].sort();}
 function renderMaestro(){const rows=maestroSKUs().map(sk=>`<tr><td><b>${sk}</b></td><td><input class="in" style="width:220px" value="${((S.descMaster||{})[sk]||'').replace(/"/g,'&quot;')}" onchange="setMaestro('${sk}','desc',this.value)"></td><td><input class="in" style="width:120px" value="${(S.ncmMaster||{})[sk]||''}" onchange="setMaestro('${sk}','ncm',this.value)"></td><td><input class="in" style="width:80px" value="${(S.derMaster||{})[sk]!=null?(S.derMaster[sk]*100):''}" onchange="setMaestro('${sk}','der',this.value)"></td><td><input class="in" style="width:80px" value="${(S.ivaMaster||{})[sk]!=null?(S.ivaMaster[sk]*100):''}" onchange="setMaestro('${sk}','iva',this.value)"></td><td><button class="mini sec" onclick="delMaestro('${sk}')">✕</button></td></tr>`).join('');
@@ -1120,16 +1125,17 @@ function mergeCloudInto(cloud){
  S._ts=Date.now();
  rebuildSegShadow();
 }
-async function cloudPush(){try{await ensureSite();setSync("saving");
+async function cloudPush(force){try{await ensureSite();setSync("saving");
  const _v=(function(){try{return validateS();}catch(e){return{errs:[],warns:[]};}})();if(_v.errs.length){setSync("error","No sincronizo: "+_v.errs.length+" problema(s) de datos (ver consola)");console.error("Push bloqueado por validacion:",_v.errs);return false;}
  const PATH="/sites/"+siteId+"/drive/root:/"+DATA_FILE+":/content";
  for(let attempt=1;attempt<=4;attempt++){
-  let merged=false,etag=null;
+  let merged=false,etag=null,cloud=null;
   try{const g=await graph(PATH);
-   if(g.status===200){const cloud=await g.json();etag=g.headers.get("etag")||g.headers.get("ETag")||null;
+   if(g.status===200){cloud=await g.json();etag=g.headers.get("etag")||g.headers.get("ETag")||null;
     if(!etag){try{const m=await (await graph("/sites/"+siteId+"/drive/root:/"+DATA_FILE)).json();etag=m.eTag||m["@odata.etag"]||null;}catch(_){}}
-    if(cloud&&cloud._ts&&cloud._ts!==S._syncBase){mergeCloudInto(cloud);merged=true;}}
+    if(!force&&cloud&&cloud._ts&&cloud._ts!==S._syncBase){mergeCloudInto(cloud);merged=true;}}
   }catch(e){console.warn("chequeo de merge/etag fallo, push directo",e);}
+  try{if(cloud&&cloud._ts)await graph("/sites/"+siteId+"/drive/root:/comex_data.prev.json:/content",{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify(cloud)});}catch(e){console.warn("no pude guardar comex_data.prev.json",e);}
   const hdr={"Content-Type":"application/json"};if(etag)hdr["If-Match"]=etag;
   try{const r=await graph(PATH,{method:"PUT",headers:hdr,body:JSON.stringify(S)});
    if(r.ok){S._syncBase=S._ts;window.__dirty=false;rebuildSegShadow();localStorage.setItem(LS,JSON.stringify(S));if(merged){renderAll();setSync("synced","Fusione cambios de otra sesion (nada se piso)");}else setSync("synced");return true;}
