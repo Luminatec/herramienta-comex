@@ -266,6 +266,7 @@ function idOK(v){return /^(LUMI|LUPE|LUCL)_\d{3}[A-Z]?$/.test(v);}
 function normIdField(){const el=document.getElementById('ed_id');if(!el)return;el.value=normId(el.value);const hh=document.getElementById('idHint');if(hh)hh.innerHTML=el.value?(idOK(el.value)?'<span style="color:#3a8f57">✓ formato OK</span>':'<span style="color:#c0662e">⚠ formato no estándar — usá LUMI_### (opcional letra final, ej. LUMI_295 o LUMI_295A)</span>'):'';}
 function renderParam(){
  const p=S.params;
+ if(typeof gastosOpDefaults==='function')gastosOpDefaults();
  const row=(k,label,isPct=true)=>`<div class="field"><label>${label}</label><input class="in" value="${isPct?(p[k]*100):p[k]}" onchange="setParam('${k}',this.value,${isPct})">${isPct?'<span class="muted">%</span>':'<span class="muted">USD</span>'}</div>`;
  document.getElementById("tab-param").innerHTML=`
  <h2>Parámetros — tasas e impuestos</h2>
@@ -300,6 +301,13 @@ function renderParam(){
    ${row('pe_pIgv1','Percepción IGV — 1ra import./riesgo')}
    ${row('pe_pIgvU','Percepción IGV — usados')}
    <p class="muted">Derechos ad valorem (0/4/6/11%) y derechos de importación (por NCM) se cargan por ítem en cada calculadora.</p>
+  </div>
+  <div class="card"><h3>Gastos operativos de despacho</h3>
+   ${row('gp_despPct','Honorario despachante (% del CIF)')}
+   ${row('gp_termCont','Terminal por contenedor',false)}
+   ${row('gp_fwd','Forwarder (Trice) por embarque',false)}
+   ${row('gp_fijos','Operativos fijos por embarque',false)}
+   <p class="muted">Alimentan la columna "Gastos operativos de despacho" del Resumen (aparte de impuestos). Base: histórico (Pedidos de Fondos LUMI_302/304 y facturas de Odoo). El IVA de estos gastos es crédito recuperable.</p>
   </div>
  </div>`;
 }
@@ -699,7 +707,7 @@ function card(ix){const r=S.seg[ix];const dias=diasETA(r.eta);const al=alerta(r)
   <div class="sc-cost">${r.costeo?'<span class="costed">✓ costeado</span>':''}<button class="mini sec" onclick="event.stopPropagation();verDetalle(${ix})">📋 Detalle</button><button class="mini" onclick="event.stopPropagation();costearEmbarque(${ix})">💲 Costear</button></div>
  </div>`;
 }
-function newSeg(){S.seg.unshift({id:"",pais:"",prov:"",prod:"",origen:"",modo:"",inco:"",estado:"",fOrden:"",etd:"",eta:"",fOfic:"",fLib:"",docs:"",despa:"",notas:"",costEst:"",costReal:"",pagos:[]});save();renderSeg();openEdit(0);}
+function newSeg(){S.seg.unshift({id:"",pais:"",prov:"",prod:"",origen:"",modo:"",inco:"",estado:"",fOrden:"",etd:"",eta:"",fOfic:"",fLib:"",docs:"",despa:"",conts:"",opDesp:"",notas:"",costEst:"",costReal:"",pagos:[]});save();renderSeg();openEdit(0);}
 function openEdit(ix){const r=S.seg[ix];
  const esc=s=>String(s==null?'':s).replace(/"/g,'&quot;');
  const opts=(arr,v)=>`<option value=""></option>`+arr.map(o=>`<option ${o===v?'selected':''}>${o}</option>`).join('');
@@ -717,6 +725,7 @@ function openEdit(ix){const r=S.seg[ix];
    ${F('Fecha orden',dd('fOrden'))}${F('ETD',dd('etd'))}
    ${F('ETA',dd('eta'))}${F('Fecha ofic.',dd('fOfic'))}
    ${F('Fecha liberación',dd('fLib'))}${F('Despachante',t('despa'))}
+   ${F('Nº contenedores',`<input id="ed_conts" type="number" min="0" value="${esc(r.conts)}">`)}${F('Operador despacho',`<select id="ed_opDesp">${opts(['Mundo Comex','Trice','Otro'],r.opDesp)}</select>`)}
    ${F('Costo est. USD',t('costEst'))}${F('Costo real USD',t('costReal'))}
   </div>
   ${F('Docs pendientes',ta('docs'))}${F('Notas',ta('notas'))}
@@ -782,7 +791,7 @@ async function migrarASharePoint(){
  alert('Migración a SharePoint:\n'+okF+' carpetas · '+okDocs+' archivos subidos · '+skip+' ya existían.'+(errs.length?'\n\nProblemas ('+errs.length+'):\n'+errs.slice(0,15).join('\n'):''));
 }
 function closeM(){const m=document.getElementById('editModal');if(m)m.remove();}
-function saveEdit(ix){['id','pais','prov','prod','origen','modo','inco','estado','fOrden','etd','eta','fOfic','fLib','despa','costEst','costReal','docs','notas'].forEach(k=>{const el=document.getElementById('ed_'+k);if(el)S.seg[ix][k]=el.value;});if(S.seg[ix].id){S.seg[ix].id=normId(S.seg[ix].id);if(!idOK(S.seg[ix].id))setTimeout(()=>alert('Aviso: el ID "'+S.seg[ix].id+'" no tiene el formato estándar (LUMI_### / LUMI_###A). Se guardó igual, pero revisalo para poder cruzarlo con la carpeta y Odoo.'),60);}save();if(fsGranted&&S.seg[ix].id)ensureFolder(S.seg[ix].id,true);closeM();renderSeg();}
+function saveEdit(ix){['id','pais','prov','prod','origen','modo','inco','estado','fOrden','etd','eta','fOfic','fLib','despa','conts','opDesp','costEst','costReal','docs','notas'].forEach(k=>{const el=document.getElementById('ed_'+k);if(el)S.seg[ix][k]=el.value;});if(S.seg[ix].id){S.seg[ix].id=normId(S.seg[ix].id);if(!idOK(S.seg[ix].id))setTimeout(()=>alert('Aviso: el ID "'+S.seg[ix].id+'" no tiene el formato estándar (LUMI_### / LUMI_###A). Se guardó igual, pero revisalo para poder cruzarlo con la carpeta y Odoo.'),60);}save();if(fsGranted&&S.seg[ix].id)ensureFolder(S.seg[ix].id,true);closeM();renderSeg();}
 function delSegM(ix){if(confirm('¿Eliminar este embarque?')){S.seg.splice(ix,1);save();closeM();renderSeg();}}
 function importSegFile(e){const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=()=>importSegRows(parseCSV(r.result));r.readAsText(f);e.target.value='';}
 function importSegRows(rows){if(!rows||rows.length<2){alert('CSV vacío o sin filas de datos.');return;}
@@ -1002,6 +1011,34 @@ function computeNac(r){
  const noRecup=derechos+tasa+sim,credito=iva+iibb+pIva+pGan+impInt;
  return{VA,derechos,tasa,sim,iva,pIva,pGan,iibb,impInt,noRecup,credito,desembolso:noRecup+credito};
 }
+function gastosOpDefaults(){const p=S.params||(S.params={});if(p.gp_despPct==null)p.gp_despPct=0.005;if(p.gp_termCont==null)p.gp_termCont=2000;if(p.gp_fwd==null)p.gp_fwd=930;if(p.gp_fijos==null)p.gp_fijos=200;return p;}
+function gastosOpEst(r){
+ if(!r||r.pais!=='Argentina')return null;
+ const P=gastosOpDefaults();
+ const c=(typeof computeNac==='function')?computeNac(r):null;
+ const VA=c?c.VA:num(r.nacVA);
+ if(!VA)return null;
+ const conts=num(r.conts)||0;
+ const honor=VA*(P.gp_despPct||0);
+ const term=conts*(P.gp_termCont||0);
+ const fwd=(P.gp_fwd||0);
+ const fijos=(P.gp_fijos||0);
+ const total=honor+term+fwd+fijos;
+ return {VA,honor,term,fwd,fijos,total,iva:total*0.21,op:r.opDesp||r.despa||''};
+}
+function gastosOpPanelHTML(){
+ if(typeof peruMode==='function'&&peruMode())return '';
+ const P=gastosOpDefaults();
+ const seg=S.seg.filter(resMatch);
+ const act=seg.filter(r=>r.pais==='Argentina'&&r.estado!=='Entregado'&&(r.ncmMix||[]).length);
+ let rows='',T={t:0,r:0,has:false};
+ act.forEach(r=>{const g=gastosOpEst(r);if(!g)return;const real=(r.gastosReal&&r.gastosReal.total!=null)?num(r.gastosReal.total):null;T.t+=g.total;if(real!=null){T.r+=real;T.has=true;}
+   rows+=`<tr><td><b>${r.id}</b></td><td>${g.op||'—'}</td><td class="right">${num(r.conts)||'—'}</td><td class="right">${money(g.VA)}</td><td class="right">${money(g.honor)}</td><td class="right">${g.term?money(g.term):'—'}</td><td class="right">${money(g.fwd)}</td><td class="right">${money(g.fijos)}</td><td class="right"><b>${money(g.total)}</b></td><td class="right">${real!=null?money(real):'<span class="muted">pend.</span>'}</td></tr>`;});
+ if(!rows)return '';
+ const head=`<tr><th>Embarque</th><th>Operador</th><th class="right">Cont.</th><th class="right">CIF</th><th class="right">Honorario</th><th class="right">Terminal</th><th class="right">Forwarder</th><th class="right">Fijos</th><th class="right">Gastos op. est.</th><th class="right">Gastos op. real</th></tr>`;
+ const tot=`<tr style="border-top:2px solid #cbd6d3;font-weight:600"><td colspan="8">Total (${act.length})</td><td class="right">${money(T.t)}</td><td class="right">${T.has?money(T.r):'—'}</td></tr>`;
+ return `<div class="panel"><h2 style="margin-top:0">Gastos operativos de despacho (Argentina)</h2><table>${head}${rows}${tot}</table><p class="muted">Columna <b>aparte</b> de la nacionalización — no suma a impuestos. <b>Estimado</b> = honorario despachante (${((P.gp_despPct||0.005)*100).toFixed(2)}% del CIF) + terminal (USD ${money(P.gp_termCont||2000)}/contenedor) + forwarder Trice (USD ${money(P.gp_fwd||930)}) + operativos fijos (USD ${money(P.gp_fijos||200)}). El IVA de estos gastos es crédito recuperable y no se incluye. La columna <b>real</b> la completa la tarea diaria desde Odoo (facturas de Mundo Comex + Trice por embarque). Cargá el Nº de contenedores y el operador en cada embarque para afinar el estimado. Los parámetros se editan en la pestaña Parámetros.</p></div>`;
+}
 function nacPanelHTML(){
  if(typeof peruMode==='function'&&peruMode())return '';
  const seg=S.seg.filter(resMatch);
@@ -1056,6 +1093,7 @@ function renderResumen(){const seg=S.seg.filter(resMatch);const activos=seg.filt
   <div class="grid">${!peruMode()?paisPanel('Argentina'):''}${paisPanel('Perú')}</div>
   ${dispoHTML()}
   ${nacPanelHTML()}
+  ${gastosOpPanelHTML()}
   ${backupPanelHTML()}
   <p class="muted">"Valor provisorio en curso" usa el costo estimado de cada embarque activo. "Pagos a proveedor pendientes" suma los pagos al proveedor todavía no abonados. La "Nacionalización est. 0–15 / 16–30 / 31–60 días" son <b>tramos separados</b> (no se solapan): cada uno suma el costo estimado de nacionalización (aranceles, impuestos y gastos) de los embarques que <b>arriban</b> en ese rango de días. El tramo 0–15 incluye arribos vencidos. Un tramo en cero significa que no hay arribos en esa ventana. Los pagos con fecha aparecen en la línea de tiempo de arriba.</p>`;}
 function maestroSKUs(){const s=new Set([...Object.keys(S.ivaMaster||{}),...Object.keys(S.derMaster||{}),...Object.keys(S.ncmMaster||{}),...Object.keys(S.descMaster||{})]);return [...s].sort();}
