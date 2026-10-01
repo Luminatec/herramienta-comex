@@ -5,12 +5,17 @@ y escribe comex_odoo_real.json en SharePoint, al lado de comex_data.json,
 para que la herramienta COMEX lo lea como overlay.
 
 FASE 1 (gastosReal) -- implementada.
-FASE 2 (nacReal) -- NO implementada: los codigos de cuenta del handoff
+FASE 2 (nacReal) -- implementada. Los codigos de cuenta del handoff
 (118001, 114101, 114103, 114307, 114601, 1142xx, 211101, 118005, 118006)
-no existen en el plan de cuentas real de LUMINATEC (que usa codigos
-jerarquicos con puntos, ej. "1.1.4.02.010"). Hace falta el mapeo real de
-Nacho antes de poder escribirla. Mientras tanto, nacReal y nacEstSnap
-quedan en None para todos los embarques.
+SI existen, planos, en el plan de cuentas real de la compania 6 de PROD
+(la busqueda jerarquica anterior -- "1.1.4.02.010" -- consultaba la
+compania de test, no la 6). Verificado en vivo contra el DI real de
+LUMI_302 (account.move id 44648, company 6, x_lumi_tc_historico=1512):
+los 8 valores (noRecup, iva, pIva, pGan, impInt, iibb, VA, desembolso)
+coinciden con los esperados del handoff. Si un embarque no tiene DI
+posteado o su DI no tiene x_lumi_tc_historico cargado, o el control de
+gate (noRecup+credito vs desembolso) no cuadra dentro de 1 USD, nacReal
+queda en None -- nunca se estima.
 
 Nunca escribe en Odoo. El unico archivo que escribe es comex_odoo_real.json.
 Idempotente: reescribe el archivo completo en cada corrida.
@@ -44,6 +49,20 @@ MUNDO_COMEX_VAT = "30717845419"
 TRICE_NAME_PATTERN = "trice%"
 
 COHORTE_RE = re.compile(r"(LUMI|LUPE)[_ ]?0?(\d{2,3})", re.IGNORECASE)
+
+# FASE 2 -- codigos de cuenta reales de la compania 6 (verificados contra
+# el DI de LUMI_302, account.move id 44648).
+NAC_COMPANY_ID = 6
+NAC_CUENTA_NORECUP = "118001"  # Cuenta Puente Mercaderias
+NAC_CUENTA_IVA = "114101"  # IVA Credito Fiscal
+NAC_CUENTA_PIVA = "114103"  # Percepcion de IVA Sufrida
+NAC_CUENTA_PGAN = "114307"  # Percepcion de Ganancias Sufrida
+NAC_CUENTA_IMPINT = "114601"  # Impuestos Internos - Pago a Cuenta
+NAC_CUENTA_IIBB_PREFIX = "1142"  # 114203-114226, percepciones IIBB por jurisdiccion
+NAC_CUENTAS_BASEIVA = ("118005", "118006")  # Base Imponible IVA 10,5%/21% Importacion
+NAC_CUENTA_DESEMBOLSO = "211101"  # Proveedores (liability_payable, credito-normal)
+NAC_SIM_USD = 10.0
+NAC_GATE_TOLERANCIA_USD = 1.0
 
 
 def odoo_jsonrpc(method, params):
@@ -149,6 +168,125 @@ def resolver_tc_cohorte(uid, cohorte, facturas_cohorte, fecha_referencia):
     return (None, None)
 
 
+def resolver_di_cohorte(uid, cohorte):
+    """Busca el DI (despacho de importacion) de una cohorte LUMI_ en la
+    compania 6 real de PROD. Devuelve (move_id, name, fecha, tc) del
+    primer DI con x_lumi_tc_historico cargado, o (None, None, None, None)
+    si no hay ninguno -- en ese caso nacReal queda pendiente."""
+    dis = odoo_execute_kw(
+        uid,
+        "account.move",
+        "search_read",
+        [[["ref", "ilike", cohorte], ["name", "ilike", "DI "]]],
+        {
+            "fields": ["name", "date", "x_lumi_tc_historico"],
+            "context": {"allowed_company_ids": [NAC_COMPANY_ID]},
+            "limit": 5,
+        },
+    )
+    for di in dis:
+        tc = di.get("x_lumi_tc_historico")
+        if tc:
+            return di["id"], di["name"], di.get("date"), float(tc)
+    return None, None, None, None
+
+
+def build_nac_real(uid, cohorte):
+    """FASE 2: recalcula nacReal a partir del DI real de la cohorte en la
+    compania 6. Devuelve None (deja pendiente, no estima) si no hay DI
+    con TC, o si el control de gate no cuadra dentro de NAC_GATE_TOLERANCIA_USD."""
+    move_id, name, fecha, tc = resolver_di_cohorte(uid, cohorte)
+    if not move_id or not tc:
+        return None
+
+    lines = odoo_execute_kw(
+        uid,
+        "account.move.line",
+        "search_read",
+        [[["move_id", "=", move_id]]],
+        {
+            "fields": ["account_id", "debit", "credit"],
+            "context": {"allowed_company_ids": [NAC_COMPANY_ID]},
+            "limit": 200,
+        },
+    )
+    acc_ids = sorted({l["account_id"][0] for l in lines if l.get("account_id")})
+    if not acc_ids:
+        return None
+    accs = odoo_execute_kw(
+        uid,
+        "account.account",
+        "read",
+        [acc_ids, ["code"]],
+        {"context": {"allowed_company_ids": [NAC_COMPANY_ID]}},
+    )
+    code_de_id = {a["id"]: a["code"] for a in accs}
+
+    neto = {}
+    for l in lines:
+        if not l.get("account_id"):
+            continue
+        code = code_de_id.get(l["account_id"][0])
+        if not code:
+            continue
+        neto[code] = neto.get(code, 0.0) + (l["debit"] - l["credit"])
+
+    no_recup_ars = neto.get(NAC_CUENTA_NORECUP, 0.0)
+    iva_ars = neto.get(NAC_CUENTA_IVA, 0.0)
+    p_iva_ars = neto.get(NAC_CUENTA_PIVA, 0.0)
+    p_gan_ars = neto.get(NAC_CUENTA_PGAN, 0.0)
+    imp_int_ars = neto.get(NAC_CUENTA_IMPINT, 0.0)
+    iibb_ars = sum(v for c, v in neto.items() if c.startswith(NAC_CUENTA_IIBB_PREFIX))
+    base_iva_ars = sum(neto.get(c, 0.0) for c in NAC_CUENTAS_BASEIVA)
+    # 211101 es a pagar (liability_payable, credito-normal): el saldo que
+    # importa para el desembolso es credito-debito, signo invertido
+    # respecto del resto de las cuentas de esta formula (todas
+    # asset_current, debito-normal).
+    saldo_proveedores_ars = -neto.get(NAC_CUENTA_DESEMBOLSO, 0.0)
+
+    sim_ars = NAC_SIM_USD * tc
+    va_ars = base_iva_ars - (no_recup_ars - sim_ars)
+    desembolso_ars = saldo_proveedores_ars - base_iva_ars
+
+    no_recup = no_recup_ars / tc
+    iva = iva_ars / tc
+    p_iva = p_iva_ars / tc
+    p_gan = p_gan_ars / tc
+    imp_int = imp_int_ars / tc
+    iibb = iibb_ars / tc
+    va = va_ars / tc
+    desembolso = desembolso_ars / tc
+    credito = iva + p_iva + p_gan + imp_int + iibb
+
+    gate_diff = abs(no_recup + credito - desembolso)
+    if gate_diff > NAC_GATE_TOLERANCIA_USD:
+        print(
+            "WARN: %s nacReal no cuadra (noRecup+credito vs desembolso difieren USD %.2f), se omite"
+            % (cohorte, gate_diff),
+            file=sys.stderr,
+        )
+        return None
+
+    despacho = name[len("DI "):].strip() if name.startswith("DI ") else name
+
+    return {
+        "fecha": fecha,
+        "di": despacho,
+        "tc": tc,
+        "VA": round(va),
+        "sim": int(NAC_SIM_USD),
+        "noRecup": round(no_recup),
+        "iva": round(iva),
+        "pIva": round(p_iva),
+        "pGan": round(p_gan),
+        "iibb": round(iibb),
+        "impInt": round(imp_int),
+        "credito": round(credito),
+        "desembolso": round(desembolso),
+        "src": "Odoo DI move %d · company %d · TC DI" % (move_id, NAC_COMPANY_ID),
+    }
+
+
 def build_gastos_reales(uid):
     partners = odoo_execute_kw(
         uid, "res.partner", "search_read", [[["vat", "=", MUNDO_COMEX_VAT]]], {"fields": ["id", "name"]}
@@ -248,7 +386,7 @@ def build_gastos_reales(uid):
                     "parcial": parcial,
                     "ts": int(datetime.now(timezone.utc).timestamp() * 1000),
                 },
-                "nacReal": None,
+                "nacReal": build_nac_real(uid, cohorte),
                 "nacEstSnap": None,
             }
         )
@@ -316,9 +454,10 @@ def main():
     }
     parciales = sum(1 for e in embarques if e["gastosReal"]["parcial"])
     sin_tc = sum(1 for e in embarques if e["gastosReal"]["tcUsado"] is None)
+    con_nac_real = sum(1 for e in embarques if e["nacReal"] is not None)
     print(
-        "Resumen: %d embarques, %d parciales, %d sin TC resoluble"
-        % (len(embarques), parciales, sin_tc)
+        "Resumen: %d embarques, %d parciales, %d sin TC resoluble, %d con nacReal"
+        % (len(embarques), parciales, sin_tc, con_nac_real)
     )
     write_to_sharepoint(payload)
     print("OK: %s escrito en SharePoint (%s)" % (OUTPUT_FILE, SP_SITE))
