@@ -1130,10 +1130,10 @@ function seedPagos(){if(S.seededPagos)return;const map={};S.seg.forEach(r=>{if(m
 // ---------- Login M365 (MSAL) + sincronización SharePoint (Graph) ----------
 const MSAL_CFG={auth:{clientId:"73344446-c533-49e2-8bf1-6f23a9696d47",authority:"https://login.microsoftonline.com/27cfe214-f2f8-46f7-a731-282bcb32b2b3",redirectUri:"https://luminatec.github.io/herramienta-comex/"},cache:{cacheLocation:"localStorage"}};
 const GRAPH_SCOPES=["User.Read","Sites.ReadWrite.All","Mail.Read","Mail.Send"];
-const SP_HOST="luminatec.sharepoint.com",SP_SITE="/sites/Luminatec-Operacines",DATA_FILE="comex_data.json";
+const SP_HOST="luminatec.sharepoint.com",SP_SITE="/sites/Luminatec-Operacines",DATA_FILE="comex_data.json",REAL_FILE="comex_odoo_real.json";
 let msalApp=null,account=null,cloudReady=false,siteId=null,pushTimer=null;
 function setSync(s,msg){const el=document.getElementById("syncbar");if(!el)return;const map={offline:["#8a9a97","Sin conectar"],connecting:["#c0662e","Conectando…"],loading:["#2f6f8f","Cargando datos…"],synced:["#3a8f57","Sincronizado ☁"],saving:["#c0662e","Guardando…"],error:["#9c0006","Error de sincronización"]};const p=map[s]||["#8a9a97",s];const who=account?("👤 "+(account.name||account.username)+" · "):"";const links=account?' · <a href="#" onclick="cloudReload();return false">Recargar</a> · <a href="#" onclick="logout();return false">Salir</a>':' <button class="mini" onclick="login()">Iniciar sesión M365</button>';el.innerHTML=who+'<b style="color:'+p[0]+'">'+(msg||p[1])+'</b>'+links;}
-async function initAuth(){if(typeof msal==="undefined"){setSync("error","No se cargó la librería de inicio de sesión (revisá tu conexión a internet)");return;}if(!window.isSecureContext){setSync("error","Abrí la app desde https://luminatec.github.io/herramienta-comex/ (el login no funciona abriendo el archivo local)");return;}try{msalApp=new msal.PublicClientApplication(MSAL_CFG);await msalApp.initialize();const resp=await msalApp.handleRedirectPromise();if(resp&&resp.account)account=resp.account;else{const a=msalApp.getAllAccounts();if(a.length)account=a[0];}}catch(e){console.error(e);setSync("error","No se pudo iniciar el login");return;}if(account){msalApp.setActiveAccount(account);setSync("loading");await cloudLoad();}else setSync("offline","Iniciá sesión para ver los datos compartidos");}
+async function initAuth(){if(typeof msal==="undefined"){setSync("error","No se cargó la librería de inicio de sesión (revisá tu conexión a internet)");return;}if(!window.isSecureContext){setSync("error","Abrí la app desde https://luminatec.github.io/herramienta-comex/ (el login no funciona abriendo el archivo local)");return;}try{msalApp=new msal.PublicClientApplication(MSAL_CFG);await msalApp.initialize();const resp=await msalApp.handleRedirectPromise();if(resp&&resp.account)account=resp.account;else{const a=msalApp.getAllAccounts();if(a.length)account=a[0];}}catch(e){console.error(e);setSync("error","No se pudo iniciar el login");return;}if(account){msalApp.setActiveAccount(account);setSync("loading");await cloudLoad();loadOdooReal();}else setSync("offline","Iniciá sesión para ver los datos compartidos");}
 async function login(){if(!msalApp){alert("El login no está disponible. Si abriste el archivo con doble clic, cerralo y entrá desde la dirección web https://luminatec.github.io/herramienta-comex/ — el inicio de sesión de Microsoft sólo funciona por HTTPS, no con el archivo local.");return;}try{setSync("connecting");await msalApp.loginRedirect({scopes:GRAPH_SCOPES});}catch(e){alert("No se pudo iniciar sesión: "+e.message);}}
 async function logout(){try{await msalApp.logoutRedirect();}catch(e){}}
 async function getToken(){try{const r=await msalApp.acquireTokenSilent({scopes:GRAPH_SCOPES,account});return r.accessToken;}catch(e){const r=await msalApp.acquireTokenPopup({scopes:GRAPH_SCOPES});return r.accessToken;}}
@@ -1156,7 +1156,31 @@ async function graph(path,opts){opts=opts||{};const t=await getToken();
  return r;}
 async function ensureSite(){if(siteId)return;const r=await graph("/sites/"+SP_HOST+":"+SP_SITE);const j=await r.json();if(!j.id)throw new Error("No encuentro el sitio de SharePoint");siteId=j.id;}
 async function cloudLoad(){try{await ensureSite();const r=await graph("/sites/"+siteId+"/drive/root:/"+DATA_FILE+":/content");if(r.status===200){const data=await r.json();if(S&&S._ts&&data._ts&&S._ts>data._ts){/*FIX 2026-09-24: fusionar, nunca adoptar local a ciegas (evita pisar la nube con un estado vacio)*/mergeCloudInto(data);S._syncBase=S._ts;cloudReady=true;rebuildSegShadow();renderAll();setSync("synced","Tus cambios locales eran más nuevos: subiéndolos");scheduleCloudPush();}else{S=deepMerge(structuredClone(defaults),data);S._syncBase=data._ts||0;rebuildSegShadow();localStorage.setItem(LS,JSON.stringify(S));cloudReady=true;renderAll();show(peruMode()?"seg":"inst");applyScope();setSync("synced");}dailyBackup();}else if(r.status===404){S._syncBase=S._ts||0;cloudReady=true;rebuildSegShadow();renderAll();setSync("synced","Sin datos aún — empezá a cargar");}else{setSync("error","No pude leer los datos ("+r.status+")");}}catch(e){console.error(e);var _m=(''+((e&&e.message)||e));var _perm=/No encuentro el sitio|403|denied|forbidden|accessDenied|noAccess/i.test(_m);setSync("error", _perm?"Sin acceso a los datos compartidos. Pedile a Nacho que te agregue al sitio SharePoint \u2018Luminatec-Operaciones\u2019. La calculadora de Costeo funciona igual.":"No se pudieron cargar los datos compartidos (revis\u00e1 tu conexi\u00f3n). La calculadora de Costeo funciona igual.");}}
-async function cloudReload(){setSync("loading");siteId=null;await cloudLoad();}
+async function cloudReload(){setSync("loading");siteId=null;await cloudLoad();loadOdooReal();}
+async function loadOdooReal(){
+ // Overlay de solo lectura: comex_odoo_real.json lo escribe un job
+ // automatico (GitHub Action, lee Odoo) aparte de comex_data.json. Nunca
+ // pisa un campo si el overlay no lo trae (gastosReal/nacReal/nacEstSnap
+ // quedan como estaban si el job todavia no cargo ese dato para ese
+ // embarque), y si el archivo no existe o falla la lectura no interrumpe
+ // nada -- la app sigue andando igual con comex_data.json solo.
+ try{
+  await ensureSite();
+  const r=await graph("/sites/"+siteId+"/drive/root:/"+REAL_FILE+":/content");
+  if(r.status!==200)return;
+  const data=await r.json();
+  if(!data||!Array.isArray(data.embarques))return;
+  const byId={};(S.seg||[]).forEach(x=>{if(x&&x.id)byId[x.id]=x;});
+  let changed=false;
+  data.embarques.forEach(e=>{
+   if(!e||!e.id)return;const row=byId[e.id];if(!row)return;
+   if(e.gastosReal!=null){row.gastosReal=e.gastosReal;changed=true;}
+   if(e.nacReal!=null){row.nacReal=e.nacReal;changed=true;}
+   if(e.nacEstSnap!=null){row.nacEstSnap=e.nacEstSnap;changed=true;}
+  });
+  if(changed){rebuildSegShadow();renderAll();}
+ }catch(e){console.warn("No pude cargar "+REAL_FILE+" (overlay de reales, no bloqueante):",e);}
+}
 function scheduleCloudPush(){if(!account||!cloudReady)return;clearTimeout(pushTimer);pushTimer=setTimeout(cloudPush,1500);}
 function mergeCloudInto(cloud){
  // Fusión aditiva: la nube es base (más nueva); superponemos lo local sin descartar registros de la nube.
