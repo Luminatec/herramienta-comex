@@ -443,11 +443,22 @@ async function findInvoiceItems(ix,dk){const r=S.seg[ix];const D=await embDocs(r
  const esProveedor=n=>{const sa=n.toLowerCase().replace(/[^a-z0-9]/g,'');return sa.includes('petdur')||(prov&&prov.length>2&&sa.includes(prov));};
  const score=n=>{n=n.toLowerCase();let s=0;if(/\bci\b|commercial|invoice|factura|proforma|\bpi\b/.test(n))s+=3;if(/fanttik|order|pedido/.test(n))s+=1;return s;};
  const esFlete=n=>/trice|flete|freight|forwarder|onboard/i.test(n);
- const all=D.items.filter(f=>/\.(xlsx?|pdf)$/i.test(f.name)&&!/^~\$/.test(f.name)).map(f=>[f.name,f]);
+ // Nunca elegir notas de debito/credito ni documentos de fees
+ // (financing/service fee) como "factura del proveedor": traen % sobre
+ // el saldo, no productos (caso real LUMI_300: "DEBIT NOTE - PETDUR -
+ // 260818.xls" matcheaba esProveedor por contener "petdur" en el
+ // nombre y ganaba por sobre la PI/proforma real).
+ const esNotaOFee=n=>/debit\s*note|credit\s*note|nota\s*de\s*d[eé]bito|nota\s*de\s*cr[eé]dito|financing\s*fee|service\s*fee/i.test(n);
+ // Defensa en profundidad para notas de debito/fee con nombre de
+ // archivo atipico: si el contenido ya extraido tiene pinta de ser eso
+ // (cantidades fraccionarias <1, o 1-2 lineas con "fee" en la
+ // descripcion), se descarta el candidato en vez de aceptarlo.
+ const pareceNotaODebito=its=>its.length>0&&(its.every(i=>{const q=num(i.qty);return q>0&&q<1;})||(its.length<=2&&its.some(i=>/\bfee\b/i.test(i.desc||''))));
+ const all=D.items.filter(f=>/\.(xlsx?|pdf)$/i.test(f.name)&&!/^~\$/.test(f.name)&&!esNotaOFee(f.name)).map(f=>[f.name,f]);
  const parse=async list=>{for(const [n,f] of list){try{let best=[];
    if(/\.pdf$/i.test(n)){const lines=await readPdfText(await f.get());best=detectItems(lines.map(l=>l.split(/\s{2,}/)),dk);if(!best.length)best=detectB2Box(lines,dk);if(!best.length)best=detectInvoiceLines(lines,dk);}
    else{if(typeof XLSX==='undefined')continue;const wb=XLSX.read(new Uint8Array(await (await f.get()).arrayBuffer()),{type:'array'});wb.SheetNames.forEach(sn=>{const it=detectItems(XLSX.utils.sheet_to_json(wb.Sheets[sn],{header:1,defval:''}),dk);if(it.length>best.length)best=it;});}
-   if(best.length)return {items:best,file:n};
+   if(best.length&&!pareceNotaODebito(best))return {items:best,file:n};
   }catch(e){}}return null;};
  const esDetalle=n=>/detalle/i.test(n)&&/\.xlsx?$/i.test(n);
  const det=all.filter(f=>esDetalle(f[0]));
@@ -455,7 +466,13 @@ async function findInvoiceItems(ix,dk){const r=S.seg[ix];const D=await embDocs(r
  const inv=all.filter(f=>!esProveedor(f[0])&&!esFlete(f[0])&&!esDetalle(f[0])&&score(f[0])>0).sort((a,b)=>score(b[0])-score(a[0]));
  const xls=all.filter(f=>/\.xlsx?$/i.test(f[0])&&!esProveedor(f[0])&&!esFlete(f[0])&&!esDetalle(f[0])&&score(f[0])<=0&&!/coste|costo/i.test(f[0]));
  const pdfs=all.filter(f=>/\.pdf$/i.test(f[0])&&!esFlete(f[0])&&score(f[0])<=0);
- for(const list of [det,prv,inv,xls,pdfs]){const res=await parse(list);if(res)return res;}
+ // PROFORMA/PI/factura comercial (prv, inv) priorizados por sobre
+ // "Detalle <ID>.xlsx": un Detalle puede ser un rotulo viejo heredado de
+ // otra cohorte (caso real LUMI_305: "Detalle LUMI_305.xlsx" vivia en
+ // la carpeta propia del 305 pero tenia tintas Canon de otro embarque
+ // absorbido -- la proforma real de Bridge GS/Sillas Gamer quedaba sin
+ // probar porque Detalle se intentaba primero y ya devolvia items).
+ for(const list of [prv,inv,det,xls,pdfs]){const res=await parse(list);if(res)return res;}
  return {items:[],file:null};}
 async function autoFillFromFolder(ix,c){const dk=c==='ar'?'der':'adv';const res=await findInvoiceItems(ix,dk);const best=(res&&res.items)?res.items:[];if(!best.length)return 0;if(c==='ar')learnFillProd(best);S[c].items=best;save();setTimeout(()=>alert(best.length+' ítems traídos de "'+res.file+'".\nRevisá % de derecho (el IVA se autocompleta del maestro por SKU).'),80);return best.length;}
 function traerDeCarpeta(){if(!costeoCtx)return;if(!fsGranted){alert('Primero conectá la carpeta de documentos en Seguimiento.');return;}autoFillFromFolder(costeoCtx.ix,costeoCtx.c).then(n=>{if(n){renderAR();renderPE();}else alert('No pude leer automáticamente una factura de PETDUR (Excel o PDF de texto) en la carpeta. Podés usar "Importar factura" o cargar los ítems a mano.');});}
