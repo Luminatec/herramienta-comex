@@ -303,7 +303,7 @@ def valores_mano(resueltos, omitir):
     for tk, r in resueltos.items():
         if tk in omitir:
             continue
-        # x_operador es un Selection: vacio se escribe False ('' lo rechaza Odoo con ValueError).
+        # x_operador es un Selection: el vacio canonico es False (el ORM tambien tolera '', verificado).
         vals[r["campo"]] = (r["odoo"] or False) if r["campo"] == "x_operador" else r["odoo"]
         vals[r["campo"] + "_sync"] = r["odoo"]
     return vals

@@ -63,10 +63,10 @@ class FakeOdoo:
         if model == "account.move":
             return self.facturas
         assert model == S.MODELO
-        # Odoo rechaza '' en un Selection (x_operador, x_estado): tiene que ir False.
+        # Convencion: el vacio de un Selection (x_operador, x_estado) viaja como False, no como ''.
         for v in ([args[0]] if method == "create" else [args[1]] if method == "write" else []):
             for campo in ("x_operador", "x_estado", "x_pais"):
-                assert v.get(campo, False) != "", "Selection %s con '' (Odoo lanza ValueError)" % campo
+                assert v.get(campo, False) != "", "Selection %s con '' (debe ir False)" % campo
         if method == "search_read":
             self.n_search_read += 1
             if self.hook_search_read:
