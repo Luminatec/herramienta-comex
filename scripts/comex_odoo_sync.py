@@ -48,13 +48,9 @@ CAMPOS_MANO = (
     ("x_operador", "opDesp"),
 )
 
-# Parametros de gastosOpEst de la herramienta (index.html, gastosOpDefaults).
-GASTOS_PCT_CIF = 0.005
-GASTOS_USD_POR_CONTENEDOR = 2000.0
-GASTOS_USD_FORWARDER = 930.0
-GASTOS_USD_FIJOS = 200.0
-
-PETDUR_PATTERN = "petdur%"
+# Defaults de gastosOpEst de la herramienta (index.html, gastosOpDefaults): la herramienta los
+# lee de S.params (gp_despPct, gp_termCont, gp_fwd, gp_fijos) y cae a estos valores.
+GASTOS_DEFAULTS = {"gp_despPct": 0.005, "gp_termCont": 2000.0, "gp_fwd": 930.0, "gp_fijos": 200.0}
 
 
 class ConflictoTracker(Exception):
@@ -224,13 +220,37 @@ _FALTA = object()
 
 # ----------------------------------------------------------------------------- Fase B
 
-def gastos_est_usd(cif_usd, contenedores):
-    """gastosOpEst de la herramienta: 0,5% del CIF + USD 2.000 x contenedores + 930 forwarder + 200 fijos.
-    Sin CIF no se estima (0)."""
-    if not cif_usd:
-        return 0.0
-    return (cif_usd * GASTOS_PCT_CIF + contenedores * GASTOS_USD_POR_CONTENEDOR
-            + GASTOS_USD_FORWARDER + GASTOS_USD_FIJOS)
+def gastos_params(data):
+    """Parametros de gastosOpEst: S.params del tracker si estan, si no los defaults de la herramienta."""
+    p = (data or {}).get("params") or {}
+    out = {}
+    for k, default in GASTOS_DEFAULTS.items():
+        v = p.get(k)
+        out[k] = default if v is None or v == "" else num(v)
+    return out
+
+
+def va_embarque(seg, base_ncm):
+    """Valor en aduana (base CIF) estimado de un embarque, igual que computeNac de la herramienta:
+    `nacVA` si esta cargado; si no, la suma de FOB de `ncmMix` x (1 + flete% + seguro%) con los
+    porcentajes de S.ncm.base. None si no se puede calcular (VA pendiente)."""
+    va = num(seg.get("nacVA"))
+    if va:
+        return va
+    sum_fob = sum(num(m.get("fob")) for m in (seg.get("ncmMix") or []) if isinstance(m, dict))
+    if not sum_fob:
+        return None
+    b = base_ncm or {}
+    return sum_fob * (1 + (num(b.get("fletePctDefault")) + num(b.get("seguroPct"))) / 100.0)
+
+
+def gastos_est_usd(va, contenedores, gp=None):
+    """gastosOpEst de la herramienta: 0,5% del VA (valor en aduana = base CIF) + USD 2.000 x
+    contenedores + USD 930 forwarder + USD 200 fijos. Sin VA el honorario queda en 0 (VA pendiente)
+    pero el resto de los terminos se suman igual."""
+    gp = gp or GASTOS_DEFAULTS
+    honorario = (va or 0.0) * gp["gp_despPct"]
+    return honorario + contenedores * gp["gp_termCont"] + gp["gp_fwd"] + gp["gp_fijos"]
 
 
 def saldo_pagos(seg):
@@ -238,28 +258,7 @@ def saldo_pagos(seg):
                if isinstance(p, dict) and not p.get("pagado"))
 
 
-def cif_petdur_usd(odoo, cohorte, normalizar_cohorte):
-    """CIF del embarque a partir de las facturas de Petdur (USD, sin impuestos) cuya referencia
-    pertenece a la cohorte. None si no hay ninguna."""
-    movs = odoo(
-        "account.move", "search_read",
-        [[["partner_id.name", "=ilike", PETDUR_PATTERN],
-          ["move_type", "in", ["in_invoice", "out_invoice"]], ["state", "=", "posted"],
-          ["ref", "ilike", cohorte[-3:]]]],
-        {"fields": ["ref", "amount_untaxed", "currency_id", "move_type"],
-         "context": {"allowed_company_ids": [COMPANY_ID]}, "limit": 50})
-    total, hay = 0.0, False
-    for m in movs:
-        if normalizar_cohorte(m.get("ref")) != cohorte:
-            continue
-        if (m.get("currency_id") or [None, ""])[1] != "USD":
-            continue
-        total += m.get("amount_untaxed") or 0.0
-        hay = True
-    return total if hay else None
-
-
-def valores_pipeline(seg, real, cif_usd, ahora=None):
+def valores_pipeline(seg, real, va, gp=None, ahora=None):
     """Campos que mandan SIEMPRE tracker -> Odoo (mas lo calculado a partir de comex_odoo_real.json)."""
     real = real or {}
     gr = real.get("gastosReal") or {}
@@ -289,7 +288,7 @@ def valores_pipeline(seg, real, cif_usd, ahora=None):
         "x_costo_est": num(seg.get("costEst")),
         "x_nac_est": nac_est,
         "x_nac_real": num(nr.get("desembolso")) if nr else 0.0,
-        "x_gastos_est": gastos_est_usd(cif_usd, conts),
+        "x_gastos_est": gastos_est_usd(va, conts, gp),
         "x_gastos_real": num(gr.get("total")) if gr else 0.0,
         "x_parcial": bool(gr.get("parcial")) if gr else False,
         "x_saldo_pagos": saldo_pagos(seg),
@@ -311,14 +310,14 @@ def valores_mano(resueltos, omitir):
 
 # ----------------------------------------------------------------------------- orquestacion
 
-def sincronizar(odoo, leer_tracker, escribir_tracker, guardar_backup, reales, normalizar_cohorte,
+def sincronizar(odoo, leer_tracker, escribir_tracker, guardar_backup, reales,
                 dry_run=False, log=print, ahora=None, max_intentos=3):
     """odoo(model, method, args, kwargs=None); leer_tracker() -> (data, etag);
     escribir_tracker(data, etag) (lanza ConflictoTracker ante 412); guardar_backup(data);
     reales = lista `embarques` de comex_odoo_real.json. Devuelve un resumen (dict)."""
     ctx = {"context": {"allowed_company_ids": [COMPANY_ID]}}
     resumen = {"skipped": False, "tracker_escrito": False, "writeback_ok": True,
-               "cambios_tracker": {}, "creados": 0, "actualizados": 0, "cif_pendiente": [],
+               "cambios_tracker": {}, "creados": 0, "actualizados": 0, "va_pendiente": [],
                "errores": []}
 
     if not odoo("ir.model", "search_count", [[["model", "=", MODELO]]]):
@@ -390,6 +389,8 @@ def sincronizar(odoo, leer_tracker, escribir_tracker, guardar_backup, reales, no
 
     # ---- Fase B
     segs = segs_ar(data)
+    gp = gastos_params(data)
+    base_ncm = (data.get("ncm") or {}).get("base") or {}
     odoo_b = leer_odoo([s["id"] for s in segs])
     reales_por_id = {e.get("id"): e for e in reales or [] if isinstance(e, dict)}
     for seg in segs:
@@ -404,11 +405,11 @@ def sincronizar(odoo, leer_tracker, escribir_tracker, guardar_backup, reales, no
                 omitir.add(tk)
             elif rec_a and rec_b and texto(rec_b.get(r["campo"])) != texto(rec_a.get(r["campo"])):
                 omitir.add(tk)
-        cif = cif_petdur_usd(odoo, ident, normalizar_cohorte)
-        if cif is None:
-            resumen["cif_pendiente"].append(ident)
-            log("SYNC: %s CIF pendiente (sin factura de Petdur para la cohorte); x_gastos_est = 0." % ident)
-        vals = valores_pipeline(seg, reales_por_id.get(ident), cif, ahora)
+        va = va_embarque(seg, base_ncm)
+        if va is None:
+            resumen["va_pendiente"].append(ident)
+            log("SYNC: %s VA pendiente (sin nacVA ni ncmMix); x_gastos_est sin honorario, solo terminos fijos." % ident)
+        vals = valores_pipeline(seg, reales_por_id.get(ident), va, gp, ahora)
         vals.update(valores_mano(resueltos, omitir))
         if rec_b:
             # no reescribir lo que ya esta igual en los campos de mano / snapshot
@@ -426,6 +427,6 @@ def sincronizar(odoo, leer_tracker, escribir_tracker, guardar_backup, reales, no
         else:
             odoo(MODELO, "create", [vals], ctx)
             resumen["creados"] += 1
-    log("SYNC fase B: %d creado(s), %d actualizado(s), %d con CIF pendiente." % (
-        resumen["creados"], resumen["actualizados"], len(resumen["cif_pendiente"])))
+    log("SYNC fase B: %d creado(s), %d actualizado(s), %d con VA pendiente." % (
+        resumen["creados"], resumen["actualizados"], len(resumen["va_pendiente"])))
     return resumen
