@@ -478,6 +478,61 @@ def graph_get_json_con_etag(token, site_id, filename):
         return json.loads(r.read().decode("utf-8")), etag
 
 
+_RE_ANIO_COHORTE = re.compile(r"^20\d{2}$")
+
+
+def _sp_comex_root_id(token, site_id):
+    """Id de la carpeta raiz /COMEX del sitio, o None si no existe. Espejo de solo-lectura de
+    spComexRoot(create=False) en index.html -- nunca crea la carpeta."""
+    try:
+        meta = graph_request(token, "/sites/%s/drive/root:/COMEX" % site_id)
+    except urllib.error.HTTPError as e:
+        if e.code == 404:
+            return None
+        raise
+    return meta.get("id")
+
+
+def _match_embarque_folder(items, embarque_id):
+    """Misma regla que spEmbItem: el nombre es el id, o empieza con el id y el caracter siguiente
+    no es un digito (para no matchear LUMI_30 contra LUMI_304)."""
+    for it in items:
+        if not it.get("folder"):
+            continue
+        n = it.get("name") or ""
+        if n == embarque_id or (
+            n.startswith(embarque_id)
+            and not (len(n) > len(embarque_id) and n[len(embarque_id)].isdigit())
+        ):
+            return it
+    return None
+
+
+def resolver_carpeta_sp(token, site_id, embarque_id):
+    """Espejo de solo-lectura de spComexRoot(create=False) + spEmbItem(id, create=False) de
+    index.html: busca la carpeta del embarque dentro de /COMEX (directo, o adentro de una
+    subcarpeta de cohorte tipo "2024") y devuelve su webUrl, o None si no la encuentra. No crea
+    nada nunca (a diferencia de la herramienta, que puede crear la carpeta si no existe)."""
+    root_id = _sp_comex_root_id(token, site_id)
+    if not root_id:
+        return None
+    kids = (graph_request(token, "/sites/%s/drive/items/%s/children?$top=400" % (site_id, root_id))
+            .get("value") or [])
+    folder = _match_embarque_folder(kids, embarque_id)
+    if not folder:
+        for y in kids:
+            if y.get("folder") and _RE_ANIO_COHORTE.match(y.get("name") or ""):
+                ykids = (graph_request(token, "/sites/%s/drive/items/%s/children?$top=400"
+                                        % (site_id, y["id"])).get("value") or [])
+                folder = _match_embarque_folder(ykids, embarque_id)
+                if folder:
+                    break
+    if not folder:
+        return None
+    meta = graph_request(token, "/sites/%s/drive/items/%s?$select=webUrl" % (site_id, folder["id"]))
+    return meta.get("webUrl")
+
+
 def write_to_sharepoint(payload):
     token = graph_token()
     site_id = graph_site_id(token)
@@ -507,9 +562,12 @@ def sync_tablero_odoo(uid, token, site_id, embarques):
             json.dumps(data, ensure_ascii=False, separators=(",", ":")).encode("utf-8"),
         )
 
+    def resolver_carpeta(embarque_id):
+        return resolver_carpeta_sp(token, site_id, embarque_id)
+
     return comex_odoo_sync.sincronizar(
         odoo, leer_tracker, escribir_tracker, guardar_backup, embarques,
-        dry_run=SYNC_DRY_RUN,
+        dry_run=SYNC_DRY_RUN, resolver_carpeta=resolver_carpeta,
     )
 
 

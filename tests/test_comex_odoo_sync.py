@@ -197,6 +197,23 @@ class TestHelpers(unittest.TestCase):
         self.assertEqual(v["x_nac_est"], 39000.0)
         self.assertEqual(v["x_gastos_est"], 2 * 2000 + 930 + 200, "sin VA: sin honorario, con los fijos")
 
+    def test_comandos_docs_sin_chk_todo_pendiente(self):
+        comandos = S.comandos_docs(tracker_base()["seg"][1])  # LUMI_304, sin docsChk
+        self.assertEqual(comandos[0], (5, 0, 0))
+        self.assertEqual(len(comandos) - 1, len(S.DOC_CAT_AR))
+        self.assertTrue(all(c[2]["estado"] == "pend" for c in comandos[1:]))
+        tipos = [c[2]["tipo"] for c in comandos[1:]]
+        self.assertEqual(tipos, [t for t, _n, _e in S.DOC_CAT_AR], "respeta el orden del catalogo")
+
+    def test_comandos_docs_mezcla_ok_na_pend(self):
+        seg = dict(tracker_base()["seg"][0], docsChk={"orden": True, "proforma": "na", "bl": False})
+        comandos = S.comandos_docs(seg)
+        por_tipo = {c[2]["tipo"]: c[2]["estado"] for c in comandos[1:]}
+        self.assertEqual(por_tipo["orden"], "ok")
+        self.assertEqual(por_tipo["proforma"], "na")
+        self.assertEqual(por_tipo["bl"], "pend", "False (no solo ausente) tambien es pendiente")
+        self.assertEqual(por_tipo["fcprov"], "pend")
+
 
 class TestResolverMano(unittest.TestCase):
     def rec(self, **kw):
@@ -459,6 +476,40 @@ class TestSincronizar(unittest.TestCase):
         trk.data["seg"] = [s for s in trk.data["seg"] if s["id"] != "LUMI_304"]
         correr(odoo, trk)
         self.assertEqual(len(odoo.recs), 2)
+
+
+class TestResolverCarpeta(unittest.TestCase):
+    def test_se_llama_solo_si_falta_la_url(self):
+        odoo, trk = FakeOdoo(), FakeTracker(tracker_base())
+        llamados = []
+
+        def resolver(embarque_id):
+            llamados.append(embarque_id)
+            return "https://sharepoint.example/" + embarque_id
+
+        correr(odoo, trk, resolver_carpeta=resolver)
+        self.assertEqual(sorted(llamados), ["LUMI_302", "LUMI_304"], "una vez por embarque AR")
+        self.assertEqual(odoo.por_nombre("LUMI_302")["x_sp_folder_url"], "https://sharepoint.example/LUMI_302")
+
+        llamados.clear()
+        correr(odoo, trk, resolver_carpeta=resolver)
+        self.assertEqual(llamados, [], "ya tiene url: no se vuelve a resolver")
+
+    def test_si_falla_no_bloquea_el_resto_del_sync(self):
+        odoo, trk = FakeOdoo(), FakeTracker(tracker_base())
+
+        def resolver_roto(embarque_id):
+            raise RuntimeError("Graph caido")
+
+        res, logs = correr(odoo, trk, resolver_carpeta=resolver_roto)
+        self.assertEqual((res["creados"], res["actualizados"]), (2, 0))
+        self.assertIs(odoo.por_nombre("LUMI_302").get("x_sp_folder_url"), None)
+        self.assertTrue(any("no se pudo resolver la carpeta" in l for l in logs))
+
+    def test_sin_resolver_carpeta_no_toca_la_url(self):
+        odoo, trk = FakeOdoo(), FakeTracker(tracker_base())
+        correr(odoo, trk)  # sin resolver_carpeta (default None), como hasta ahora
+        self.assertIs(odoo.por_nombre("LUMI_302").get("x_sp_folder_url"), None)
 
 
 if __name__ == "__main__":
