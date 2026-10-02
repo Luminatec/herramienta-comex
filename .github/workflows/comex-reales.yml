@@ -3,7 +3,12 @@ name: Sync comex_odoo_real.json
 on:
   schedule:
     - cron: "40 11 * * *"  # 11:40 UTC = 08:40 ART
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Sync del tablero Odoo en modo prueba: muestra lo que haria sin escribir en Odoo ni en comex_data.json"
+        type: boolean
+        default: false
 
 jobs:
   sync:
@@ -16,11 +21,15 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Correr job de reales COMEX (Odoo -> SharePoint)
+      - name: Tests de la logica de sync (sin red)
+        run: python -m unittest discover -s tests
+
+      - name: Correr job COMEX (Odoo -> SharePoint, tablero Odoo, writeback de campos de mano)
         env:
           ODOO_LOGIN: ${{ secrets.ODOO_LOGIN }}
           ODOO_API_KEY: ${{ secrets.ODOO_API_KEY }}
           GRAPH_TENANT_ID: ${{ secrets.GRAPH_TENANT_ID }}
           GRAPH_CLIENT_ID: ${{ secrets.GRAPH_CLIENT_ID }}
           GRAPH_CLIENT_SECRET: ${{ secrets.GRAPH_CLIENT_SECRET }}
+          COMEX_SYNC_DRY_RUN: ${{ inputs.dry_run && '1' || '' }}
         run: python scripts/comex_reales.py

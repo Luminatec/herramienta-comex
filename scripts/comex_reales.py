@@ -17,8 +17,13 @@ posteado o su DI no tiene x_lumi_tc_historico cargado, o el control de
 gate (noRecup+credito vs desembolso) no cuadra dentro de 1 USD, nacReal
 queda en None -- nunca se estima.
 
-Nunca escribe en Odoo. El unico archivo que escribe es comex_odoo_real.json.
-Idempotente: reescribe el archivo completo en cada corrida.
+Escribe comex_odoo_real.json (reescribe el archivo completo en cada corrida).
+
+SYNC TABLERO ODOO (despues de lo anterior, ver scripts/comex_odoo_sync.py): upsert de los embarques
+LUMI_ al modelo x.comex.embarque del modulo comex_dashboard (es el UNICO modelo de Odoo donde escribe)
+y writeback a comex_data.json de los 3 campos de mano (notas, despa, opDesp) que se editaron en Odoo,
+con verificacion por diff. Si el modulo no esta instalado en Odoo, el paso se omite sin error.
+COMEX_SYNC_DRY_RUN=1 muestra lo que haria sin escribir ni en Odoo ni en SharePoint.
 """
 import json
 import os
@@ -28,6 +33,8 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from datetime import datetime, timezone
+
+import comex_odoo_sync
 
 ODOO_BASE = os.environ.get("ODOO_BASE", "https://gpowerbyte-luminatec.odoo.com")
 ODOO_DB = os.environ.get("ODOO_DB", "gpowerbyte-luminatec-master-22753148")
@@ -41,6 +48,9 @@ GRAPH_CLIENT_SECRET = os.environ["GRAPH_CLIENT_SECRET"]
 SP_HOST = "luminatec.sharepoint.com"
 SP_SITE = "/sites/Luminatec-Operacines"
 OUTPUT_FILE = "comex_odoo_real.json"
+TRACKER_FILE = "comex_data.json"
+TRACKER_BACKUP_FILE = "comex_data.pre_odoo_sync.json"
+SYNC_DRY_RUN = os.environ.get("COMEX_SYNC_DRY_RUN", "").strip().lower() in ("1", "true", "yes")
 
 MUNDO_COMEX_VAT = "30717845419"
 # ilike 'trice%' (no '%trice%'): una busqueda por substring sin ancla de
@@ -426,22 +436,81 @@ def graph_request(token, path, method="GET", body=None, extra_headers=None):
     return json.loads(raw.decode("utf-8")) if raw else {}
 
 
-def write_to_sharepoint(payload):
-    token = graph_token()
+def graph_site_id(token):
     site = graph_request(token, "/sites/%s:%s" % (SP_HOST, SP_SITE))
     site_id = site.get("id")
     if not site_id:
         raise RuntimeError("Graph: no encuentro el sitio de SharePoint %s" % SP_SITE)
-    body = json.dumps(payload).encode("utf-8")
+    return site_id
+
+
+def graph_put_file(token, site_id, filename, body_bytes, if_match=None):
+    """PUT del archivo completo. Con if_match, un 412 (el archivo cambio) lanza ConflictoTracker."""
+    headers = {"Authorization": "Bearer " + token, "Content-Type": "application/json"}
+    if if_match:
+        headers["If-Match"] = if_match
     req = urllib.request.Request(
-        "https://graph.microsoft.com/v1.0/sites/%s/drive/root:/%s:/content" % (site_id, OUTPUT_FILE),
-        data=body,
-        headers={"Authorization": "Bearer " + token, "Content-Type": "application/json"},
+        "https://graph.microsoft.com/v1.0/sites/%s/drive/root:/%s:/content" % (site_id, filename),
+        data=body_bytes,
+        headers=headers,
         method="PUT",
     )
-    with urllib.request.urlopen(req, timeout=60) as r:
-        if r.status not in (200, 201):
-            raise RuntimeError("Graph: PUT de %s devolvio status %s" % (OUTPUT_FILE, r.status))
+    try:
+        with urllib.request.urlopen(req, timeout=120) as r:
+            if r.status not in (200, 201):
+                raise RuntimeError("Graph: PUT de %s devolvio status %s" % (filename, r.status))
+    except urllib.error.HTTPError as e:
+        if e.code == 412:
+            raise comex_odoo_sync.ConflictoTracker() from e
+        raise
+
+
+def graph_get_json_con_etag(token, site_id, filename):
+    """(contenido parseado, eTag). El eTag se toma de los metadatos ANTES de bajar el contenido: si el
+    archivo cambia entre medio, el PUT con If-Match falla con 412 en vez de pisar la version nueva."""
+    meta = graph_request(token, "/sites/%s/drive/root:/%s" % (site_id, filename))
+    etag = meta.get("eTag")
+    url = meta.get("@microsoft.graph.downloadUrl")
+    if not etag or not url:
+        raise RuntimeError("Graph: %s sin eTag / downloadUrl" % filename)
+    # downloadUrl viene pre-autenticada: sin header Authorization.
+    with urllib.request.urlopen(urllib.request.Request(url), timeout=120) as r:
+        return json.loads(r.read().decode("utf-8")), etag
+
+
+def write_to_sharepoint(payload):
+    token = graph_token()
+    site_id = graph_site_id(token)
+    graph_put_file(token, site_id, OUTPUT_FILE, json.dumps(payload).encode("utf-8"))
+    return token, site_id
+
+
+def sync_tablero_odoo(uid, token, site_id, embarques):
+    """Upsert tracker -> x.comex.embarque + writeback de campos de mano (comex_odoo_sync.sincronizar)."""
+
+    def odoo(model, method, args, kwargs=None):
+        return odoo_execute_kw(uid, model, method, args, kwargs)
+
+    def leer_tracker():
+        return graph_get_json_con_etag(token, site_id, TRACKER_FILE)
+
+    def escribir_tracker(data, etag):
+        # Compacto y sin escapar unicode, como JSON.stringify de la herramienta.
+        graph_put_file(
+            token, site_id, TRACKER_FILE,
+            json.dumps(data, ensure_ascii=False, separators=(",", ":")).encode("utf-8"), if_match=etag,
+        )
+
+    def guardar_backup(data):
+        graph_put_file(
+            token, site_id, TRACKER_BACKUP_FILE,
+            json.dumps(data, ensure_ascii=False, separators=(",", ":")).encode("utf-8"),
+        )
+
+    return comex_odoo_sync.sincronizar(
+        odoo, leer_tracker, escribir_tracker, guardar_backup, embarques, normalizar_cohorte,
+        dry_run=SYNC_DRY_RUN,
+    )
 
 
 def main():
@@ -459,13 +528,25 @@ def main():
         "Resumen: %d embarques, %d parciales, %d sin TC resoluble, %d con nacReal"
         % (len(embarques), parciales, sin_tc, con_nac_real)
     )
-    write_to_sharepoint(payload)
+    token, site_id = write_to_sharepoint(payload)
     print("OK: %s escrito en SharePoint (%s)" % (OUTPUT_FILE, SP_SITE))
+
+    # El sync del tablero Odoo es un paso aparte: si falla, el overlay ya quedo escrito y el job
+    # termina en rojo para que se vea, sin haber perdido lo anterior.
+    try:
+        resumen = sync_tablero_odoo(uid, token, site_id, embarques)
+    except Exception as e:
+        print("ERROR: sync del tablero Odoo: %s" % e, file=sys.stderr)
+        return 1
+    if resumen.get("errores"):
+        print("ERROR: sync del tablero Odoo con errores: %s" % resumen["errores"], file=sys.stderr)
+        return 1
+    return 0
 
 
 if __name__ == "__main__":
     try:
-        main()
+        sys.exit(main() or 0)
     except Exception as e:
         print("ERROR: %s" % e, file=sys.stderr)
         sys.exit(1)
