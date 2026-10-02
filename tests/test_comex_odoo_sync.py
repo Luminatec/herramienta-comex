@@ -63,6 +63,10 @@ class FakeOdoo:
         if model == "account.move":
             return self.facturas
         assert model == S.MODELO
+        # Odoo rechaza '' en un Selection (x_operador, x_estado): tiene que ir False.
+        for v in ([args[0]] if method == "create" else [args[1]] if method == "write" else []):
+            for campo in ("x_operador", "x_estado", "x_pais"):
+                assert v.get(campo, False) != "", "Selection %s con '' (Odoo lanza ValueError)" % campo
         if method == "search_read":
             self.n_search_read += 1
             if self.hook_search_read:
@@ -425,6 +429,16 @@ class TestSincronizar(unittest.TestCase):
         self.assertEqual(odoo.recs, antes)
         self.assertEqual(trk.escrituras, 0)
         self.assertTrue(any("dry-run" in l for l in logs))
+
+    def test_operador_vacio_en_el_tracker_va_como_false(self):
+        data = tracker_base()
+        data["seg"][1]["opDesp"] = ""
+        odoo, trk = FakeOdoo(), FakeTracker(data)
+        correr(odoo, trk)
+        self.assertIs(odoo.por_nombre("LUMI_304")["x_operador"], False)
+        self.assertEqual(odoo.por_nombre("LUMI_304")["x_operador_sync"], "")
+        correr(odoo, trk)  # segunda corrida: sigue sin ValueError ni cambios espureos
+        self.assertEqual(trk.escrituras, 0)
 
     def test_embarque_que_ya_no_esta_en_el_tracker_no_se_borra(self):
         odoo, trk = FakeOdoo(), FakeTracker(tracker_base())
