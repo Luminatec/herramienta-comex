@@ -508,7 +508,7 @@ def sync_tablero_odoo(uid, token, site_id, embarques):
         )
 
     return comex_odoo_sync.sincronizar(
-        odoo, leer_tracker, escribir_tracker, guardar_backup, embarques, normalizar_cohorte,
+        odoo, leer_tracker, escribir_tracker, guardar_backup, embarques,
         dry_run=SYNC_DRY_RUN,
     )
 

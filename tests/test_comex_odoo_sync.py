@@ -8,24 +8,17 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "scripts"))
 import comex_odoo_sync as S  # noqa: E402
 
 
-def normalizar(ref):
-    import re
-    m = re.search(r"(LUMI|LUPE)[_ ]?0?(\d{2,3})", ref or "", re.IGNORECASE)
-    if not m or m.group(1).upper() != "LUMI":
-        return None
-    return "LUMI_%03d" % int(m.group(2))
-
-
 def tracker_base():
     return {
         "_ts": 1000,
         "params": {"gp_fwd": 930},
+        "ncm": {"base": {"fletePctDefault": 2, "seguroPct": 1}},
         "dispo": {"items": [{"fac": "A", "monto": 5}], "giros": []},
         "seg": [
             {"id": "LUMI_302", "pais": "Argentina", "prov": "Prov A", "prod": "Producto A", "origen": "China",
              "modo": "Marítimo", "inco": "FOB", "estado": "en transito", "fOrden": "2026-07-01", "etd": "2026-08-01",
              "eta": "2026-10-20", "fOfic": "", "fLib": "", "conts": "2", "docs": "Falta BL", "despa": "Juan",
-             "opDesp": "Mundo Comex", "notas": "nota A", "costEst": "100000", "nacEst": "40000",
+             "opDesp": "Mundo Comex", "notas": "nota A", "costEst": "100000", "nacEst": "40000", "nacVA": "153799.52",
              "pagos": [{"concepto": "anticipo", "monto": "30000", "pagado": True},
                        {"concepto": "saldo", "monto": "70000", "pagado": False, "fecha": "2026-10-10"}],
              "_m": 900},
@@ -47,11 +40,10 @@ REALES = [
 class FakeOdoo:
     """Odoo en memoria: x.comex.embarque + facturas de Petdur."""
 
-    def __init__(self, instalado=True, facturas=None):
+    def __init__(self, instalado=True):
         self.instalado = instalado
         self.recs = {}
         self.next_id = 1
-        self.facturas = facturas or []
         self.calls = []
         self.hook_search_read = None  # callable(n_llamada) para simular una edicion concurrente
         self.n_search_read = 0
@@ -60,8 +52,7 @@ class FakeOdoo:
         self.calls.append((model, method))
         if model == "ir.model":
             return 1 if self.instalado else 0
-        if model == "account.move":
-            return self.facturas
+        assert model != "account.move", "ya no se consulta Petdur: el honorario sale del VA del tracker"
         assert model == S.MODELO
         # Convencion: el vacio de un Selection (x_operador, x_estado) viaja como False, no como ''.
         for v in ([args[0]] if method == "create" else [args[1]] if method == "write" else []):
@@ -121,11 +112,8 @@ class FakeTracker:
 def correr(odoo, tracker, **kw):
     logs = []
     res = S.sincronizar(odoo, tracker.leer, tracker.escribir, tracker.backup, kw.pop("reales", REALES),
-                        normalizar, log=logs.append, **kw)
+                        log=logs.append, **kw)
     return res, logs
-
-
-FACTURA_302 = {"ref": "LUMI_302 CIF", "amount_untaxed": 200000.0, "currency_id": [2, "USD"], "move_type": "in_invoice"}
 
 
 class TestHelpers(unittest.TestCase):
@@ -158,16 +146,39 @@ class TestHelpers(unittest.TestCase):
         self.assertIs(S.fecha_odoo("fecha rara"), False)
         self.assertIs(S.fecha_odoo(""), False)
 
-    def test_gastos_est(self):
-        self.assertAlmostEqual(S.gastos_est_usd(200000, 2), 200000 * 0.005 + 2 * 2000 + 930 + 200)
-        self.assertEqual(S.gastos_est_usd(None, 2), 0.0)
+    def test_gastos_est_sobre_el_va(self):
+        self.assertAlmostEqual(S.gastos_est_usd(153799.52, 2), 153799.52 * 0.005 + 2 * 2000 + 930 + 200)
+        # los honorarios de los pedidos de fondos reales: 0,500% del VA
+        self.assertEqual(round(153799.52 * S.GASTOS_DEFAULTS["gp_despPct"]), 769)
+        self.assertAlmostEqual(239625.35 * S.GASTOS_DEFAULTS["gp_despPct"], 1198.13, places=1)
+
+    def test_gastos_est_sin_va_suma_solo_los_terminos_fijos(self):
+        self.assertAlmostEqual(S.gastos_est_usd(None, 2), 2 * 2000 + 930 + 200)
+        self.assertAlmostEqual(S.gastos_est_usd(None, 0), 930 + 200)
+
+    def test_gastos_params_del_tracker_o_defaults(self):
+        self.assertEqual(S.gastos_params({}), S.GASTOS_DEFAULTS)
+        gp = S.gastos_params({"params": {"gp_despPct": 0.006, "gp_fwd": "1000", "gp_fijos": ""}})
+        self.assertEqual((gp["gp_despPct"], gp["gp_fwd"], gp["gp_fijos"], gp["gp_termCont"]),
+                         (0.006, 1000.0, 200.0, 2000.0))
+        self.assertAlmostEqual(S.gastos_est_usd(100000, 1, gp), 100000 * 0.006 + 2000 + 1000 + 200)
+
+    def test_va_embarque_igual_que_la_herramienta(self):
+        base = {"fletePctDefault": 2, "seguroPct": 1}
+        self.assertEqual(S.va_embarque({"nacVA": "153799.52"}, base), 153799.52)
+        mix = {"ncmMix": [{"ncm": "a", "fob": "60000"}, {"ncm": "b", "fob": 40000}]}
+        self.assertAlmostEqual(S.va_embarque(mix, base), 100000 * 1.03)
+        self.assertAlmostEqual(S.va_embarque(dict(mix, nacVA=""), {}), 100000.0)
+        self.assertEqual(S.va_embarque(dict(mix, nacVA="200000"), base), 200000.0, "nacVA tiene prioridad")
+        self.assertIsNone(S.va_embarque({}, base))
+        self.assertIsNone(S.va_embarque({"ncmMix": [{"fob": ""}]}, base))
 
     def test_saldo_pagos(self):
         self.assertEqual(S.saldo_pagos(tracker_base()["seg"][0]), 70000.0)
 
     def test_valores_pipeline(self):
         seg = tracker_base()["seg"][0]
-        v = S.valores_pipeline(seg, REALES[0], 200000.0)
+        v = S.valores_pipeline(seg, REALES[0], 153799.52)
         self.assertEqual(v["name"], "LUMI_302")
         self.assertEqual(v["x_estado"], "En tránsito")
         self.assertEqual(v["x_contenedores"], 2)
@@ -176,6 +187,7 @@ class TestHelpers(unittest.TestCase):
         self.assertFalse(v["x_parcial"])
         self.assertEqual(v["x_nac_est"], 40000.0)
         self.assertEqual(v["x_saldo_pagos"], 70000.0)
+        self.assertAlmostEqual(v["x_gastos_est"], 153799.52 * 0.005 + 2 * 2000 + 930 + 200)
         self.assertEqual(v["x_f_ofic"], False)
         self.assertEqual(v["company_id"], 6)
 
@@ -183,7 +195,7 @@ class TestHelpers(unittest.TestCase):
         seg = tracker_base()["seg"][0]
         v = S.valores_pipeline(seg, {"nacEstSnap": 39000}, None)
         self.assertEqual(v["x_nac_est"], 39000.0)
-        self.assertEqual(v["x_gastos_est"], 0.0)
+        self.assertEqual(v["x_gastos_est"], 2 * 2000 + 930 + 200, "sin VA: sin honorario, con los fijos")
 
 
 class TestResolverMano(unittest.TestCase):
@@ -267,26 +279,27 @@ class TestSincronizar(unittest.TestCase):
         self.assertEqual([c for c in odoo.calls if c[0] == S.MODELO], [])
 
     def test_primera_corrida_crea_solo_argentina(self):
-        odoo, trk = FakeOdoo(facturas=[FACTURA_302]), FakeTracker(tracker_base())
-        res, _ = correr(odoo, trk)
+        odoo, trk = FakeOdoo(), FakeTracker(tracker_base())
+        res, logs = correr(odoo, trk)
         self.assertEqual((res["creados"], res["actualizados"]), (2, 0))
         self.assertEqual(sorted(r["name"] for r in odoo.recs.values()), ["LUMI_302", "LUMI_304"])
         r = odoo.por_nombre("LUMI_302")
         self.assertEqual(r["x_gastos_real"], 2688.0)
         self.assertEqual(r["x_nac_real"], 44008.0)
-        self.assertAlmostEqual(r["x_gastos_est"], 200000 * 0.005 + 2 * 2000 + 930 + 200)
+        self.assertAlmostEqual(r["x_gastos_est"], 153799.52 * 0.005 + 2 * 2000 + 930 + 200)
         self.assertEqual((r["x_notas"], r["x_notas_sync"]), ("nota A", "nota A"))
         self.assertEqual((r["x_operador"], r["x_operador_sync"]), ("MC", "MC"))
         r4 = odoo.por_nombre("LUMI_304")
         self.assertEqual(r4["x_operador"], "OT")
         self.assertTrue(r4["x_parcial"])
         self.assertIs(r4["x_eta"], False)
-        self.assertEqual(r4["x_gastos_est"], 0.0)
-        self.assertEqual(res["cif_pendiente"], ["LUMI_304"])
+        self.assertEqual(r4["x_gastos_est"], 930 + 200, "sin VA ni contenedores: solo forwarder y fijos")
+        self.assertEqual(res["va_pendiente"], ["LUMI_304"])
+        self.assertTrue(any("VA pendiente" in l for l in logs))
         self.assertEqual(trk.escrituras, 0, "sin ediciones en Odoo el tracker no se toca")
 
     def test_idempotente(self):
-        odoo, trk = FakeOdoo(facturas=[FACTURA_302]), FakeTracker(tracker_base())
+        odoo, trk = FakeOdoo(), FakeTracker(tracker_base())
         correr(odoo, trk)
         snap_odoo = {k: {f: v for f, v in r.items() if f != "x_sync_ts"} for k, r in odoo.recs.items()}
         antes = copy.deepcopy(trk.data)
