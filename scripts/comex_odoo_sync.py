@@ -332,7 +332,6 @@ def valores_pipeline(seg, real, va, gp=None, ahora=None):
         "x_parcial": bool(gr.get("parcial")) if gr else False,
         "x_saldo_pagos": saldo_pagos(seg),
         "x_sync_ts": ahora_odoo(ahora),
-        "x_doc_ids": comandos_docs(seg),
     }
 
 
@@ -349,6 +348,19 @@ def valores_mano(resueltos, omitir):
 
 
 # ----------------------------------------------------------------------------- orquestacion
+
+def _soporta_docs(odoo):
+    """True si esta instancia ya tiene el checklist de documentos / carpeta SharePoint de la Fase 1
+    del tablero: el modelo x.comex.doc Y los campos x_sp_folder_url / x_doc_ids en x.comex.embarque.
+    Deploy en dos repos (modulo Odoo + este sync): si uno llega antes que el otro -- el modulo se
+    mergeo pero Odoo.sh todavia no lo actualizo, o este sync se mergeo antes que el modulo --, esto
+    da False y el sync sigue sin esos campos en vez de romper (mismo criterio que el chequeo de
+    modulo instalado de mas abajo, pero sin saltear el resto del sync)."""
+    if not odoo("ir.model", "search_count", [[["model", "=", "x.comex.doc"]]]):
+        return False
+    campos = odoo(MODELO, "fields_get", [], {"attributes": []})
+    return "x_sp_folder_url" in campos and "x_doc_ids" in campos
+
 
 def sincronizar(odoo, leer_tracker, escribir_tracker, guardar_backup, reales,
                 dry_run=False, log=print, ahora=None, max_intentos=3, resolver_carpeta=None):
@@ -367,7 +379,14 @@ def sincronizar(odoo, leer_tracker, escribir_tracker, guardar_backup, reales,
         resumen["skipped"] = True
         return resumen
 
-    campos_leer = ["name", "x_sp_folder_url"] + [f for xf, _tk in CAMPOS_MANO for f in (xf, xf + "_sync")]
+    soporta_docs = _soporta_docs(odoo)
+    if not soporta_docs:
+        log("SYNC: el checklist de documentos (x.comex.doc / x_sp_folder_url / x_doc_ids) todavia no "
+            "esta instalado/actualizado en esta instancia; se omite el espejo de documentos y de "
+            "carpeta SharePoint, el resto del sync sigue igual.")
+
+    campos_leer = ["name"] + (["x_sp_folder_url"] if soporta_docs else [])
+    campos_leer += [f for xf, _tk in CAMPOS_MANO for f in (xf, xf + "_sync")]
     data, etag = leer_tracker()
 
     def segs_ar(d):
@@ -453,14 +472,16 @@ def sincronizar(odoo, leer_tracker, escribir_tracker, guardar_backup, reales,
             log("SYNC: %s VA pendiente (sin nacVA ni ncmMix); x_gastos_est sin honorario, solo terminos fijos." % ident)
         vals = valores_pipeline(seg, reales_por_id.get(ident), va, gp, ahora)
         vals.update(valores_mano(resueltos, omitir))
-        if resolver_carpeta and not (rec_b and rec_b.get("x_sp_folder_url")):
-            try:
-                url = resolver_carpeta(ident)
-            except Exception as e:
-                url = None
-                log("SYNC: no se pudo resolver la carpeta de SharePoint de %s: %s" % (ident, e))
-            if url:
-                vals["x_sp_folder_url"] = url
+        if soporta_docs:
+            vals["x_doc_ids"] = comandos_docs(seg)
+            if resolver_carpeta and not (rec_b and rec_b.get("x_sp_folder_url")):
+                try:
+                    url = resolver_carpeta(ident)
+                except Exception as e:
+                    url = None
+                    log("SYNC: no se pudo resolver la carpeta de SharePoint de %s: %s" % (ident, e))
+                if url:
+                    vals["x_sp_folder_url"] = url
         if rec_b:
             # no reescribir lo que ya esta igual en los campos de mano / snapshot
             for k in [f for xf, _t in CAMPOS_MANO for f in (xf, xf + "_sync")]:

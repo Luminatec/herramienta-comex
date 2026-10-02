@@ -40,8 +40,9 @@ REALES = [
 class FakeOdoo:
     """Odoo en memoria: x.comex.embarque + facturas de Petdur."""
 
-    def __init__(self, instalado=True):
+    def __init__(self, instalado=True, soporta_docs=True):
         self.instalado = instalado
+        self.soporta_docs = soporta_docs
         self.recs = {}
         self.next_id = 1
         self.calls = []
@@ -50,8 +51,16 @@ class FakeOdoo:
 
     def __call__(self, model, method, args, kwargs=None):
         self.calls.append((model, method))
-        if model == "ir.model":
+        if model == "ir.model" and method == "search_count":
+            buscado = args[0][0][2]
+            if buscado == "x.comex.doc":
+                return 1 if self.soporta_docs else 0
             return 1 if self.instalado else 0
+        if model == S.MODELO and method == "fields_get":
+            campos = {"name": {}, "x_estado": {}}
+            if self.soporta_docs:
+                campos.update({"x_sp_folder_url": {}, "x_doc_ids": {}})
+            return campos
         assert model != "account.move", "ya no se consulta Petdur: el honorario sale del VA del tracker"
         assert model == S.MODELO
         # Convencion: el vacio de un Selection (x_operador, x_estado) viaja como False, no como ''.
@@ -476,6 +485,46 @@ class TestSincronizar(unittest.TestCase):
         trk.data["seg"] = [s for s in trk.data["seg"] if s["id"] != "LUMI_304"]
         correr(odoo, trk)
         self.assertEqual(len(odoo.recs), 2)
+
+
+class TestSoportaDocs(unittest.TestCase):
+    """Guard de feature-detection: si el modulo comex_dashboard de PROD todavia no tiene la Fase 1
+    (modelo x.comex.doc + campos x_sp_folder_url/x_doc_ids) instalada/actualizada, el sync tiene
+    que seguir funcionando igual que antes, sin ese espejo, en vez de romper con un error de ORM
+    por pedir un campo/modelo que no existe (lo que paso en PROD con el deploy desfasado)."""
+
+    def test_sin_soporte_se_omite_sin_romper(self):
+        odoo, trk = FakeOdoo(soporta_docs=False), FakeTracker(tracker_base())
+        llamados = []
+        res, logs = correr(odoo, trk, resolver_carpeta=lambda eid: llamados.append(eid))
+        self.assertEqual((res["creados"], res["actualizados"]), (2, 0), "el resto del sync sigue igual")
+        self.assertEqual(llamados, [], "no se intenta resolver la carpeta si no hay soporte de docs")
+        self.assertNotIn("x_doc_ids", odoo.por_nombre("LUMI_302"))
+        self.assertNotIn("x_sp_folder_url", odoo.por_nombre("LUMI_302"))
+        self.assertTrue(any("se omite el espejo de documentos" in l for l in logs))
+
+    def test_con_soporte_arma_x_doc_ids(self):
+        odoo, trk = FakeOdoo(soporta_docs=True), FakeTracker(tracker_base())
+        correr(odoo, trk)
+        self.assertIn("x_doc_ids", odoo.por_nombre("LUMI_302"))
+        self.assertEqual(odoo.por_nombre("LUMI_302")["x_doc_ids"][0], (5, 0, 0))
+
+    def test_modelo_doc_existe_pero_falta_un_campo_tambien_omite(self):
+        # Caso mas fino que soporta_docs=False: el modelo x.comex.doc ya existe pero a
+        # x.comex.embarque todavia le falta x_doc_ids (upgrade parcial/a mitad de deploy).
+        base = FakeOdoo(soporta_docs=True)
+
+        def fake(model, method, args, kwargs=None):
+            if model == "ir.model" and method == "search_count" and args[0][0][2] == "x.comex.doc":
+                return 1
+            if model == S.MODELO and method == "fields_get":
+                return {"name": {}, "x_sp_folder_url": {}}  # falta x_doc_ids
+            return base(model, method, args, kwargs)
+
+        trk = FakeTracker(tracker_base())
+        res, logs = correr(fake, trk)
+        self.assertEqual((res["creados"], res["actualizados"]), (2, 0))
+        self.assertTrue(any("se omite el espejo de documentos" in l for l in logs))
 
 
 class TestResolverCarpeta(unittest.TestCase):
