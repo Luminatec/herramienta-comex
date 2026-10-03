@@ -40,9 +40,10 @@ REALES = [
 class FakeOdoo:
     """Odoo en memoria: x.comex.embarque + facturas de Petdur."""
 
-    def __init__(self, instalado=True, soporta_docs=True):
+    def __init__(self, instalado=True, soporta_docs=True, soporta_nac_gastos=True):
         self.instalado = instalado
         self.soporta_docs = soporta_docs
+        self.soporta_nac_gastos = soporta_nac_gastos
         self.recs = {}
         self.next_id = 1
         self.calls = []
@@ -60,6 +61,8 @@ class FakeOdoo:
             campos = {"name": {}, "x_estado": {}}
             if self.soporta_docs:
                 campos.update({"x_sp_folder_url": {}, "x_doc_ids": {}})
+            if self.soporta_nac_gastos:
+                campos.update({c: {} for c in S.CAMPOS_NAC_GASTOS_BREAKDOWN})
             return campos
         assert model != "account.move", "ya no se consulta Petdur: el honorario sale del VA del tracker"
         assert model == S.MODELO
@@ -570,6 +573,27 @@ class TestSoportaDocs(unittest.TestCase):
         res, logs = correr(fake, trk)
         self.assertEqual((res["creados"], res["actualizados"]), (2, 0))
         self.assertTrue(any("se omite el espejo de documentos" in l for l in logs))
+
+
+class TestSoportaNacGastosBreakdown(unittest.TestCase):
+    """Mismo patron que TestSoportaDocs, para el desglose de nacReal/gastos de la Fase 2.1+2.2."""
+
+    def test_sin_soporte_se_omite_sin_romper(self):
+        odoo, trk = FakeOdoo(soporta_nac_gastos=False), FakeTracker(tracker_base())
+        res, logs = correr(odoo, trk)
+        self.assertEqual((res["creados"], res["actualizados"]), (2, 0), "el resto del sync sigue igual")
+        rec = odoo.por_nombre("LUMI_302")
+        for campo in S.CAMPOS_NAC_GASTOS_BREAKDOWN:
+            self.assertNotIn(campo, rec)
+        self.assertIn("x_gastos_est", rec, "el total ya existente sigue escribiendose")
+        self.assertTrue(any("se omite ese desglose" in l for l in logs))
+
+    def test_con_soporte_escribe_el_desglose(self):
+        odoo, trk = FakeOdoo(soporta_nac_gastos=True), FakeTracker(tracker_base())
+        correr(odoo, trk)
+        rec = odoo.por_nombre("LUMI_302")
+        for campo in S.CAMPOS_NAC_GASTOS_BREAKDOWN:
+            self.assertIn(campo, rec)
 
 
 class TestResolverCarpeta(unittest.TestCase):

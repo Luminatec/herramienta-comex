@@ -379,6 +379,26 @@ def valores_mano(resueltos, omitir):
 
 # ----------------------------------------------------------------------------- orquestacion
 
+# Campos que agrega la Fase 2.1+2.2: si el sync llega antes de que Odoo.sh instale/actualice el
+# modulo con estos campos (o al reves), hay que omitirlos en vez de romper -- ver
+# _soporta_nac_gastos_breakdown().
+CAMPOS_NAC_GASTOS_BREAKDOWN = (
+    "x_nac_real_va", "x_nac_real_norecup", "x_nac_real_iva", "x_nac_real_piva", "x_nac_real_pgan",
+    "x_nac_real_impint", "x_nac_real_iibb", "x_nac_real_credito", "x_nac_real_tc", "x_nac_real_di",
+    "x_nac_real_fecha", "x_gastos_honor", "x_gastos_term", "x_gastos_fwd", "x_gastos_fijos",
+)
+
+
+def _soporta_nac_gastos_breakdown(odoo):
+    """True si esta instancia ya tiene los campos del desglose de nacReal real / gastos estimados
+    (Fase 2.1+2.2) en x.comex.embarque. Mismo patron de _soporta_docs (ver mas abajo): si el modulo
+    Odoo y este sync se despliegan en momentos distintos, el sync sigue escribiendo el resto de los
+    campos sin este desglose en vez de romper -- ya paso 3 veces con deploys desfasados entre estos
+    dos repos (RNG invalido, editable="false", y el guard de docsChk que esto imita)."""
+    campos = odoo(MODELO, "fields_get", [], {"attributes": []})
+    return all(c in campos for c in CAMPOS_NAC_GASTOS_BREAKDOWN)
+
+
 def _soporta_docs(odoo):
     """True si esta instancia ya tiene el checklist de documentos / carpeta SharePoint de la Fase 1
     del tablero: el modelo x.comex.doc Y los campos x_sp_folder_url / x_doc_ids en x.comex.embarque.
@@ -414,6 +434,11 @@ def sincronizar(odoo, leer_tracker, escribir_tracker, guardar_backup, reales,
         log("SYNC: el checklist de documentos (x.comex.doc / x_sp_folder_url / x_doc_ids) todavia no "
             "esta instalado/actualizado en esta instancia; se omite el espejo de documentos y de "
             "carpeta SharePoint, el resto del sync sigue igual.")
+    soporta_nac_gastos = _soporta_nac_gastos_breakdown(odoo)
+    if not soporta_nac_gastos:
+        log("SYNC: el desglose de nacionalizacion real / gastos estimados (Fase 2.1+2.2) todavia no "
+            "esta instalado/actualizado en esta instancia; se omite ese desglose, el resto del sync "
+            "sigue igual.")
 
     campos_leer = ["name"] + (["x_sp_folder_url"] if soporta_docs else [])
     campos_leer += [f for xf, _tk in CAMPOS_MANO for f in (xf, xf + "_sync")]
@@ -501,6 +526,9 @@ def sincronizar(odoo, leer_tracker, escribir_tracker, guardar_backup, reales,
             resumen["va_pendiente"].append(ident)
             log("SYNC: %s VA pendiente (sin nacVA ni ncmMix); x_gastos_est sin honorario, solo terminos fijos." % ident)
         vals = valores_pipeline(seg, reales_por_id.get(ident), va, gp, ahora)
+        if not soporta_nac_gastos:
+            for k in CAMPOS_NAC_GASTOS_BREAKDOWN:
+                vals.pop(k, None)
         vals.update(valores_mano(resueltos, omitir))
         if soporta_docs:
             vals["x_doc_ids"] = comandos_docs(seg)
