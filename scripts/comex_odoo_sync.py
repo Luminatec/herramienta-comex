@@ -264,13 +264,23 @@ def va_embarque(seg, base_ncm):
     return sum_fob * (1 + (num(b.get("fletePctDefault")) + num(b.get("seguroPct"))) / 100.0)
 
 
-def gastos_est_usd(va, contenedores, gp=None):
-    """gastosOpEst de la herramienta: 0,5% del VA (valor en aduana = base CIF) + USD 2.000 x
-    contenedores + USD 930 forwarder + USD 200 fijos. Sin VA el honorario queda en 0 (VA pendiente)
-    pero el resto de los terminos se suman igual."""
+def gastos_est_breakdown(va, contenedores, gp=None):
+    """Desglose de gastosOpEst (index.html: gastosOpEst) -- 4 terminos fijos, no es el motor de
+    calculo (eso es computeNac, que no se reimplementa): honorario del despachante (% del VA) +
+    terminal por contenedor + forwarder (Trice) fijo por embarque + operativos fijos. Sin VA el
+    honorario queda en 0 (VA pendiente) pero el resto de los terminos se suman igual. Fase 2.2:
+    cada termino se espeja por separado al panel "Gastos operativos de despacho"."""
     gp = gp or GASTOS_DEFAULTS
-    honorario = (va or 0.0) * gp["gp_despPct"]
-    return honorario + contenedores * gp["gp_termCont"] + gp["gp_fwd"] + gp["gp_fijos"]
+    honor = (va or 0.0) * gp["gp_despPct"]
+    term = contenedores * gp["gp_termCont"]
+    fwd = gp["gp_fwd"]
+    fijos = gp["gp_fijos"]
+    return {"honor": honor, "term": term, "fwd": fwd, "fijos": fijos, "total": honor + term + fwd + fijos}
+
+
+def gastos_est_usd(va, contenedores, gp=None):
+    """Total de gastosOpEst. Ver gastos_est_breakdown() para el desglose por concepto."""
+    return gastos_est_breakdown(va, contenedores, gp)["total"]
 
 
 def saldo_pagos(seg):
@@ -307,6 +317,7 @@ def valores_pipeline(seg, real, va, gp=None, ahora=None):
         snap = seg.get("nacEstSnap")
     nac_est = num(snap) if snap is not None and snap != "" else num(seg.get("nacEst"))
     conts = int(num(seg.get("conts")))
+    gastos = gastos_est_breakdown(va, conts, gp)
     return {
         "name": seg["id"],
         "company_id": COMPANY_ID,
@@ -327,7 +338,26 @@ def valores_pipeline(seg, real, va, gp=None, ahora=None):
         "x_costo_est": num(seg.get("costEst")),
         "x_nac_est": nac_est,
         "x_nac_real": num(nr.get("desembolso")) if nr else 0.0,
-        "x_gastos_est": gastos_est_usd(va, conts, gp),
+        # Fase 2.1 -- desglose del despacho real (nacReal ya lo trae completo desde
+        # build_nac_real; el estimado solo tiene agregados -- ver nota en el modulo Odoo).
+        "x_nac_real_va": num(nr.get("VA")) if nr else 0.0,
+        "x_nac_real_norecup": num(nr.get("noRecup")) if nr else 0.0,
+        "x_nac_real_iva": num(nr.get("iva")) if nr else 0.0,
+        "x_nac_real_piva": num(nr.get("pIva")) if nr else 0.0,
+        "x_nac_real_pgan": num(nr.get("pGan")) if nr else 0.0,
+        "x_nac_real_impint": num(nr.get("impInt")) if nr else 0.0,
+        "x_nac_real_iibb": num(nr.get("iibb")) if nr else 0.0,
+        "x_nac_real_credito": num(nr.get("credito")) if nr else 0.0,
+        "x_nac_real_tc": num(nr.get("tc")) if nr else 0.0,
+        "x_nac_real_di": texto(nr.get("di")) if nr else "",
+        "x_nac_real_fecha": fecha_odoo(nr.get("fecha")) if nr else False,
+        "x_gastos_est": gastos["total"],
+        # Fase 2.2 -- desglose del estimado por concepto (misma formula ya aprobada, solo se
+        # exponen los 4 terminos en vez de solo el total).
+        "x_gastos_honor": gastos["honor"],
+        "x_gastos_term": gastos["term"],
+        "x_gastos_fwd": gastos["fwd"],
+        "x_gastos_fijos": gastos["fijos"],
         "x_gastos_real": num(gr.get("total")) if gr else 0.0,
         "x_parcial": bool(gr.get("parcial")) if gr else False,
         "x_saldo_pagos": saldo_pagos(seg),
@@ -348,6 +378,26 @@ def valores_mano(resueltos, omitir):
 
 
 # ----------------------------------------------------------------------------- orquestacion
+
+# Campos que agrega la Fase 2.1+2.2: si el sync llega antes de que Odoo.sh instale/actualice el
+# modulo con estos campos (o al reves), hay que omitirlos en vez de romper -- ver
+# _soporta_nac_gastos_breakdown().
+CAMPOS_NAC_GASTOS_BREAKDOWN = (
+    "x_nac_real_va", "x_nac_real_norecup", "x_nac_real_iva", "x_nac_real_piva", "x_nac_real_pgan",
+    "x_nac_real_impint", "x_nac_real_iibb", "x_nac_real_credito", "x_nac_real_tc", "x_nac_real_di",
+    "x_nac_real_fecha", "x_gastos_honor", "x_gastos_term", "x_gastos_fwd", "x_gastos_fijos",
+)
+
+
+def _soporta_nac_gastos_breakdown(odoo):
+    """True si esta instancia ya tiene los campos del desglose de nacReal real / gastos estimados
+    (Fase 2.1+2.2) en x.comex.embarque. Mismo patron de _soporta_docs (ver mas abajo): si el modulo
+    Odoo y este sync se despliegan en momentos distintos, el sync sigue escribiendo el resto de los
+    campos sin este desglose en vez de romper -- ya paso 3 veces con deploys desfasados entre estos
+    dos repos (RNG invalido, editable="false", y el guard de docsChk que esto imita)."""
+    campos = odoo(MODELO, "fields_get", [], {"attributes": []})
+    return all(c in campos for c in CAMPOS_NAC_GASTOS_BREAKDOWN)
+
 
 def _soporta_docs(odoo):
     """True si esta instancia ya tiene el checklist de documentos / carpeta SharePoint de la Fase 1
@@ -384,6 +434,11 @@ def sincronizar(odoo, leer_tracker, escribir_tracker, guardar_backup, reales,
         log("SYNC: el checklist de documentos (x.comex.doc / x_sp_folder_url / x_doc_ids) todavia no "
             "esta instalado/actualizado en esta instancia; se omite el espejo de documentos y de "
             "carpeta SharePoint, el resto del sync sigue igual.")
+    soporta_nac_gastos = _soporta_nac_gastos_breakdown(odoo)
+    if not soporta_nac_gastos:
+        log("SYNC: el desglose de nacionalizacion real / gastos estimados (Fase 2.1+2.2) todavia no "
+            "esta instalado/actualizado en esta instancia; se omite ese desglose, el resto del sync "
+            "sigue igual.")
 
     campos_leer = ["name"] + (["x_sp_folder_url"] if soporta_docs else [])
     campos_leer += [f for xf, _tk in CAMPOS_MANO for f in (xf, xf + "_sync")]
@@ -471,6 +526,9 @@ def sincronizar(odoo, leer_tracker, escribir_tracker, guardar_backup, reales,
             resumen["va_pendiente"].append(ident)
             log("SYNC: %s VA pendiente (sin nacVA ni ncmMix); x_gastos_est sin honorario, solo terminos fijos." % ident)
         vals = valores_pipeline(seg, reales_por_id.get(ident), va, gp, ahora)
+        if not soporta_nac_gastos:
+            for k in CAMPOS_NAC_GASTOS_BREAKDOWN:
+                vals.pop(k, None)
         vals.update(valores_mano(resueltos, omitir))
         if soporta_docs:
             vals["x_doc_ids"] = comandos_docs(seg)
