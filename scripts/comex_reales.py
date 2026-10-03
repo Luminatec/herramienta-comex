@@ -13,9 +13,25 @@ compania de test, no la 6). Verificado en vivo contra el DI real de
 LUMI_302 (account.move id 44648, company 6, x_lumi_tc_historico=1512):
 los 8 valores (noRecup, iva, pIva, pGan, impInt, iibb, VA, desembolso)
 coinciden con los esperados del handoff. Si un embarque no tiene DI
-posteado o su DI no tiene x_lumi_tc_historico cargado, o el control de
-gate (noRecup+credito vs desembolso) no cuadra dentro de 1 USD, nacReal
-queda en None -- nunca se estima.
+posteado, o no hay TC resoluble, o el control de gate (noRecup+credito
+vs desembolso) no cuadra dentro de 1 USD, nacReal queda en None -- nunca
+se estima.
+
+EL TC SALE DE x_lumi_cohorte, NO DE account.move.x_lumi_tc_historico (fix
+03/10/2026, diagnosticado en vivo sobre LUMI_304): el circuito V4
+(Studio) introdujo un modelo `x_lumi_cohorte` que linkea cohorte -> DI
+(x_di_move_id) -> TC aduanero (x_tc_aduanero), y para cohortes recientes
+(LUMI_297, LUMI_304) ya NO deja el x_lumi_tc_historico cargado en el
+propio move -- queda en 0 -- aunque el TC real SI esta en
+x_lumi_cohorte.x_tc_aduanero. resolver_di_cohorte() busca primero ahi
+(por x_codigo) y solo cae al metodo viejo (ref/name del DI +
+x_lumi_tc_historico) si la cohorte no tiene x_lumi_cohorte (anteriores
+al circuito V4). OJO -- el gate NO protege contra un TC mal cargado en
+x_lumi_cohorte: compara saldos ARS que por partida doble ya cuadran
+entre si ANTES de dividir por el TC, asi que cualquier TC (bien o mal
+cargado, mientras no sea 0/vacio) pasa el gate igual -- solo corre el
+resultado en USD a una escala distinta. El gate detecta un mapeo de
+cuentas roto, no un TC erroneo.
 
 Escribe comex_odoo_real.json (reescribe el archivo completo en cada corrida).
 
@@ -180,9 +196,41 @@ def resolver_tc_cohorte(uid, cohorte, facturas_cohorte, fecha_referencia):
 
 def resolver_di_cohorte(uid, cohorte):
     """Busca el DI (despacho de importacion) de una cohorte LUMI_ en la
-    compania 6 real de PROD. Devuelve (move_id, name, fecha, tc) del
-    primer DI con x_lumi_tc_historico cargado, o (None, None, None, None)
-    si no hay ninguno -- en ese caso nacReal queda pendiente."""
+    compania 6 real de PROD. Devuelve (move_id, name, fecha, tc), o
+    (None, None, None, None) si no hay TC resoluble -- en ese caso nacReal
+    queda pendiente, nunca se estima.
+
+    Primero por x_lumi_cohorte (x_codigo = cohorte): el modelo del circuito
+    V4 (Studio) que linkea cohorte -> DI (x_di_move_id) -> TC aduanero
+    (x_tc_aduanero). Es MAS CONFIABLE que el metodo viejo: verificado en
+    vivo que para cohortes recientes (LUMI_297, LUMI_304) el `ref` del DI
+    puede venir vacio o su `x_lumi_tc_historico` en 0 aunque el TC real SI
+    este cargado en x_lumi_cohorte.x_tc_aduanero (LUMI_304: DI 48936,
+    x_lumi_tc_historico=0, x_tc_aduanero=1524.5 -- con ese TC el gate de
+    build_nac_real cuadra al centavo). Si la cohorte existe en
+    x_lumi_cohorte pero sin TC aduanero cargado, se la deja pendiente ahi
+    mismo (no cae al metodo viejo: si existiera un x_lumi_tc_historico
+    viejo en el DI no hay que usarlo, ya quedo superado por este modelo).
+
+    Si la cohorte NO tiene x_lumi_cohorte (cohortes de antes del circuito
+    V4, ej. LUMI_302 si se borrara ese registro), cae al metodo viejo:
+    ref/name del account.move + su x_lumi_tc_historico.
+    """
+    cohortes = odoo_execute_kw(
+        uid,
+        "x_lumi_cohorte",
+        "search_read",
+        [[["x_codigo", "=", cohorte], ["x_company_id", "=", NAC_COMPANY_ID]]],
+        {"fields": ["x_di_move_id", "x_tc_aduanero", "x_fecha_oficializacion", "x_despacho"], "limit": 1},
+    )
+    if cohortes:
+        c = cohortes[0]
+        tc = c.get("x_tc_aduanero")
+        move = c.get("x_di_move_id")
+        if move and tc and c.get("x_despacho"):
+            return move[0], "DI " + c["x_despacho"], c.get("x_fecha_oficializacion"), float(tc)
+        return None, None, None, None
+
     dis = odoo_execute_kw(
         uid,
         "account.move",
