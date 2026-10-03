@@ -40,12 +40,17 @@ REALES = [
 class FakeOdoo:
     """Odoo en memoria: x.comex.embarque + facturas de Petdur."""
 
-    def __init__(self, instalado=True, soporta_docs=True, soporta_nac_gastos=True):
+    def __init__(self, instalado=True, soporta_docs=True, soporta_nac_gastos=True,
+                 soporta_pagos=True, soporta_giros=True):
         self.instalado = instalado
         self.soporta_docs = soporta_docs
         self.soporta_nac_gastos = soporta_nac_gastos
+        self.soporta_pagos = soporta_pagos
+        self.soporta_giros = soporta_giros
         self.recs = {}
         self.next_id = 1
+        self.giros = {}
+        self.next_giro_id = 1
         self.calls = []
         self.hook_search_read = None  # callable(n_llamada) para simular una edicion concurrente
         self.n_search_read = 0
@@ -56,6 +61,10 @@ class FakeOdoo:
             buscado = args[0][0][2]
             if buscado == "x.comex.doc":
                 return 1 if self.soporta_docs else 0
+            if buscado == "x.comex.pago":
+                return 1 if self.soporta_pagos else 0
+            if buscado == "x.comex.giro":
+                return 1 if self.soporta_giros else 0
             return 1 if self.instalado else 0
         if model == S.MODELO and method == "fields_get":
             campos = {"name": {}, "x_estado": {}}
@@ -63,7 +72,22 @@ class FakeOdoo:
                 campos.update({"x_sp_folder_url": {}, "x_doc_ids": {}})
             if self.soporta_nac_gastos:
                 campos.update({c: {} for c in S.CAMPOS_NAC_GASTOS_BREAKDOWN})
+            if self.soporta_pagos:
+                campos.update({"x_pago_ids": {}})
             return campos
+        if model == "x.comex.giro":
+            if method == "search":
+                return list(self.giros.keys())
+            if method == "unlink":
+                for i in args[0]:
+                    self.giros.pop(i, None)
+                return True
+            if method == "create":
+                rec = dict(args[0], id=self.next_giro_id)
+                self.giros[self.next_giro_id] = rec
+                self.next_giro_id += 1
+                return rec["id"]
+            raise AssertionError(method)
         assert model != "account.move", "ya no se consulta Petdur: el honorario sale del VA del tracker"
         assert model == S.MODELO
         # Convencion: el vacio de un Selection (x_operador, x_estado) viaja como False, no como ''.
@@ -90,6 +114,9 @@ class FakeOdoo:
 
     def por_nombre(self, name):
         return next(r for r in self.recs.values() if r["name"] == name)
+
+    def giros_por_ref(self, ref):
+        return [g for g in self.giros.values() if g["ref"] == ref]
 
 
 class FakeTracker:
@@ -270,6 +297,46 @@ class TestHelpers(unittest.TestCase):
         self.assertEqual(por_tipo["proforma"], "na")
         self.assertEqual(por_tipo["bl"], "pend", "False (no solo ausente) tambien es pendiente")
         self.assertEqual(por_tipo["fcprov"], "pend")
+
+    def test_comandos_pagos(self):
+        comandos = S.comandos_pagos(tracker_base()["seg"][0])  # LUMI_302: anticipo pagado + saldo pendiente
+        self.assertEqual(comandos[0], (5, 0, 0))
+        self.assertEqual(len(comandos), 3)
+        filas = [c[2] for c in comandos[1:]]
+        self.assertEqual(filas[0], {"concepto": "anticipo", "monto": 30000.0, "fecha": False, "pagado": True})
+        self.assertEqual(filas[1], {"concepto": "saldo", "monto": 70000.0, "fecha": "2026-10-10", "pagado": False})
+
+    def test_comandos_pagos_sin_pagos(self):
+        self.assertEqual(S.comandos_pagos(tracker_base()["seg"][1]), [(5, 0, 0)])
+
+    def test_girado_por_item_matchea_por_fac_o_ref(self):
+        giros = [{"fac": "F-100", "monto": 1000}, {"ref": "LUMI_302", "monto": 500}, {"fac": "", "ref": "", "monto": 999}]
+        self.assertEqual(S.girado_por_item({"fac": "F-100"}, giros), 1000.0)
+        self.assertEqual(S.girado_por_item({"ref": "LUMI_302"}, giros), 500.0)
+        self.assertEqual(S.girado_por_item({"fac": "F-100", "ref": "LUMI_302"}, giros), 1500.0,
+                         "match por fac Y por ref se suman (son giros distintos)")
+        self.assertEqual(S.girado_por_item({"fac": "no matchea", "ref": "no matchea"}, giros), 0.0)
+        self.assertEqual(S.girado_por_item({"fac": "NOTA123"}, [{"fac": "OTA12", "monto": 50}]), 50.0,
+                         "match por substring en cualquier direccion")
+
+    def test_comandos_giros(self):
+        data = dict(tracker_base(), dispo={
+            "items": [
+                {"fecha": "2026-09-01", "ref": "LUMI_302", "fac": "F-100", "banco": "Santander",
+                 "nota": "nota", "monto": 1500.0},
+                {"ref": "LUPE_010", "monto": 200.0},
+            ],
+            "giros": [{"fac": "F-100", "monto": 400.0}],
+        })
+        filas = S.comandos_giros(data)
+        self.assertEqual(len(filas), 2)
+        self.assertEqual(filas[0], {"fecha": "2026-09-01", "ref": "LUMI_302", "fac": "F-100",
+                                     "banco": "Santander", "nota": "nota", "monto": 1500.0, "girado": 400.0})
+        self.assertEqual(filas[1], {"fecha": False, "ref": "LUPE_010", "fac": "", "banco": "", "nota": "",
+                                     "monto": 200.0, "girado": 0.0})
+
+    def test_comandos_giros_sin_dispo(self):
+        self.assertEqual(S.comandos_giros({}), [])
 
 
 class TestResolverMano(unittest.TestCase):
@@ -594,6 +661,65 @@ class TestSoportaNacGastosBreakdown(unittest.TestCase):
         rec = odoo.por_nombre("LUMI_302")
         for campo in S.CAMPOS_NAC_GASTOS_BREAKDOWN:
             self.assertIn(campo, rec)
+
+
+class TestSoportaPagos(unittest.TestCase):
+    """Mismo patron que TestSoportaDocs, para los pagos por embarque de la Fase 2.3."""
+
+    def test_sin_soporte_se_omite_sin_romper(self):
+        odoo, trk = FakeOdoo(soporta_pagos=False), FakeTracker(tracker_base())
+        res, logs = correr(odoo, trk)
+        self.assertEqual((res["creados"], res["actualizados"]), (2, 0), "el resto del sync sigue igual")
+        self.assertNotIn("x_pago_ids", odoo.por_nombre("LUMI_302"))
+        self.assertTrue(any("se omite ese espejo" in l for l in logs))
+
+    def test_con_soporte_arma_x_pago_ids(self):
+        odoo, trk = FakeOdoo(soporta_pagos=True), FakeTracker(tracker_base())
+        correr(odoo, trk)
+        self.assertIn("x_pago_ids", odoo.por_nombre("LUMI_302"))
+        self.assertEqual(odoo.por_nombre("LUMI_302")["x_pago_ids"][0], (5, 0, 0))
+        self.assertEqual(odoo.por_nombre("LUMI_304")["x_pago_ids"], [(5, 0, 0)], "sin pagos: solo el unlink-all")
+
+
+class TestSoportaGiros(unittest.TestCase):
+    """Mismo patron que TestSoportaDocs, para la disponibilidad de giros de la Fase 2.3 (modelo
+    global, sin campo en x.comex.embarque que chequear)."""
+
+    def test_sin_soporte_se_omite_sin_romper(self):
+        odoo, trk = FakeOdoo(soporta_giros=False), FakeTracker(tracker_base())
+        res, logs = correr(odoo, trk)
+        self.assertEqual((res["creados"], res["actualizados"]), (2, 0), "el resto del sync sigue igual")
+        self.assertEqual(odoo.giros, {}, "no se escribe nada sin soporte")
+        self.assertTrue(any("se omite" in l and "disponibilidad de giros" in l for l in logs))
+
+    def test_con_soporte_crea_las_filas(self):
+        odoo, trk = FakeOdoo(soporta_giros=True), FakeTracker(tracker_base())
+        correr(odoo, trk)
+        self.assertEqual(len(odoo.giros), 1, "tracker_base trae un item de dispo")
+        fila = next(iter(odoo.giros.values()))
+        self.assertEqual(fila["fac"], "A")
+        self.assertEqual(fila["monto"], 5.0)
+        self.assertEqual(fila["company_id"], S.COMPANY_ID)
+
+
+class TestSincronizarGiros(unittest.TestCase):
+    def test_full_replace_entre_corridas(self):
+        data = tracker_base()
+        odoo, trk = FakeOdoo(), FakeTracker(data)
+        correr(odoo, trk)
+        self.assertEqual(len(odoo.giros), 1)
+        id_viejo = next(iter(odoo.giros))
+
+        trk.data["dispo"]["items"] = [{"fac": "A", "monto": 5}, {"ref": "LUPE_010", "monto": 300}]
+        correr(odoo, trk)
+        self.assertEqual(len(odoo.giros), 2, "reemplaza todo el set, no acumula")
+        self.assertNotIn(id_viejo, odoo.giros, "las filas viejas se borran (ids nuevos)")
+        self.assertEqual(sorted(g["ref"] or g["fac"] for g in odoo.giros.values()), ["A", "LUPE_010"])
+
+    def test_dry_run_no_escribe_giros(self):
+        odoo, trk = FakeOdoo(), FakeTracker(tracker_base())
+        correr(odoo, trk, dry_run=True)
+        self.assertEqual(odoo.giros, {}, "dry-run no crea filas de disponibilidad")
 
 
 class TestResolverCarpeta(unittest.TestCase):
