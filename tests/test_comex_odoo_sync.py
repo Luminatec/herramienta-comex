@@ -40,8 +40,9 @@ REALES = [
 class FakeOdoo:
     """Odoo en memoria: x.comex.embarque + facturas de Petdur."""
 
-    def __init__(self, instalado=True):
+    def __init__(self, instalado=True, soporta_docs=True):
         self.instalado = instalado
+        self.soporta_docs = soporta_docs
         self.recs = {}
         self.next_id = 1
         self.calls = []
@@ -50,8 +51,16 @@ class FakeOdoo:
 
     def __call__(self, model, method, args, kwargs=None):
         self.calls.append((model, method))
-        if model == "ir.model":
+        if model == "ir.model" and method == "search_count":
+            buscado = args[0][0][2]
+            if buscado == "x.comex.doc":
+                return 1 if self.soporta_docs else 0
             return 1 if self.instalado else 0
+        if model == S.MODELO and method == "fields_get":
+            campos = {"name": {}, "x_estado": {}}
+            if self.soporta_docs:
+                campos.update({"x_sp_folder_url": {}, "x_doc_ids": {}})
+            return campos
         assert model != "account.move", "ya no se consulta Petdur: el honorario sale del VA del tracker"
         assert model == S.MODELO
         # Convencion: el vacio de un Selection (x_operador, x_estado) viaja como False, no como ''.
@@ -196,6 +205,23 @@ class TestHelpers(unittest.TestCase):
         v = S.valores_pipeline(seg, {"nacEstSnap": 39000}, None)
         self.assertEqual(v["x_nac_est"], 39000.0)
         self.assertEqual(v["x_gastos_est"], 2 * 2000 + 930 + 200, "sin VA: sin honorario, con los fijos")
+
+    def test_comandos_docs_sin_chk_todo_pendiente(self):
+        comandos = S.comandos_docs(tracker_base()["seg"][1])  # LUMI_304, sin docsChk
+        self.assertEqual(comandos[0], (5, 0, 0))
+        self.assertEqual(len(comandos) - 1, len(S.DOC_CAT_AR))
+        self.assertTrue(all(c[2]["estado"] == "pend" for c in comandos[1:]))
+        tipos = [c[2]["tipo"] for c in comandos[1:]]
+        self.assertEqual(tipos, [t for t, _n, _e in S.DOC_CAT_AR], "respeta el orden del catalogo")
+
+    def test_comandos_docs_mezcla_ok_na_pend(self):
+        seg = dict(tracker_base()["seg"][0], docsChk={"orden": True, "proforma": "na", "bl": False})
+        comandos = S.comandos_docs(seg)
+        por_tipo = {c[2]["tipo"]: c[2]["estado"] for c in comandos[1:]}
+        self.assertEqual(por_tipo["orden"], "ok")
+        self.assertEqual(por_tipo["proforma"], "na")
+        self.assertEqual(por_tipo["bl"], "pend", "False (no solo ausente) tambien es pendiente")
+        self.assertEqual(por_tipo["fcprov"], "pend")
 
 
 class TestResolverMano(unittest.TestCase):
@@ -459,6 +485,80 @@ class TestSincronizar(unittest.TestCase):
         trk.data["seg"] = [s for s in trk.data["seg"] if s["id"] != "LUMI_304"]
         correr(odoo, trk)
         self.assertEqual(len(odoo.recs), 2)
+
+
+class TestSoportaDocs(unittest.TestCase):
+    """Guard de feature-detection: si el modulo comex_dashboard de PROD todavia no tiene la Fase 1
+    (modelo x.comex.doc + campos x_sp_folder_url/x_doc_ids) instalada/actualizada, el sync tiene
+    que seguir funcionando igual que antes, sin ese espejo, en vez de romper con un error de ORM
+    por pedir un campo/modelo que no existe (lo que paso en PROD con el deploy desfasado)."""
+
+    def test_sin_soporte_se_omite_sin_romper(self):
+        odoo, trk = FakeOdoo(soporta_docs=False), FakeTracker(tracker_base())
+        llamados = []
+        res, logs = correr(odoo, trk, resolver_carpeta=lambda eid: llamados.append(eid))
+        self.assertEqual((res["creados"], res["actualizados"]), (2, 0), "el resto del sync sigue igual")
+        self.assertEqual(llamados, [], "no se intenta resolver la carpeta si no hay soporte de docs")
+        self.assertNotIn("x_doc_ids", odoo.por_nombre("LUMI_302"))
+        self.assertNotIn("x_sp_folder_url", odoo.por_nombre("LUMI_302"))
+        self.assertTrue(any("se omite el espejo de documentos" in l for l in logs))
+
+    def test_con_soporte_arma_x_doc_ids(self):
+        odoo, trk = FakeOdoo(soporta_docs=True), FakeTracker(tracker_base())
+        correr(odoo, trk)
+        self.assertIn("x_doc_ids", odoo.por_nombre("LUMI_302"))
+        self.assertEqual(odoo.por_nombre("LUMI_302")["x_doc_ids"][0], (5, 0, 0))
+
+    def test_modelo_doc_existe_pero_falta_un_campo_tambien_omite(self):
+        # Caso mas fino que soporta_docs=False: el modelo x.comex.doc ya existe pero a
+        # x.comex.embarque todavia le falta x_doc_ids (upgrade parcial/a mitad de deploy).
+        base = FakeOdoo(soporta_docs=True)
+
+        def fake(model, method, args, kwargs=None):
+            if model == "ir.model" and method == "search_count" and args[0][0][2] == "x.comex.doc":
+                return 1
+            if model == S.MODELO and method == "fields_get":
+                return {"name": {}, "x_sp_folder_url": {}}  # falta x_doc_ids
+            return base(model, method, args, kwargs)
+
+        trk = FakeTracker(tracker_base())
+        res, logs = correr(fake, trk)
+        self.assertEqual((res["creados"], res["actualizados"]), (2, 0))
+        self.assertTrue(any("se omite el espejo de documentos" in l for l in logs))
+
+
+class TestResolverCarpeta(unittest.TestCase):
+    def test_se_llama_solo_si_falta_la_url(self):
+        odoo, trk = FakeOdoo(), FakeTracker(tracker_base())
+        llamados = []
+
+        def resolver(embarque_id):
+            llamados.append(embarque_id)
+            return "https://sharepoint.example/" + embarque_id
+
+        correr(odoo, trk, resolver_carpeta=resolver)
+        self.assertEqual(sorted(llamados), ["LUMI_302", "LUMI_304"], "una vez por embarque AR")
+        self.assertEqual(odoo.por_nombre("LUMI_302")["x_sp_folder_url"], "https://sharepoint.example/LUMI_302")
+
+        llamados.clear()
+        correr(odoo, trk, resolver_carpeta=resolver)
+        self.assertEqual(llamados, [], "ya tiene url: no se vuelve a resolver")
+
+    def test_si_falla_no_bloquea_el_resto_del_sync(self):
+        odoo, trk = FakeOdoo(), FakeTracker(tracker_base())
+
+        def resolver_roto(embarque_id):
+            raise RuntimeError("Graph caido")
+
+        res, logs = correr(odoo, trk, resolver_carpeta=resolver_roto)
+        self.assertEqual((res["creados"], res["actualizados"]), (2, 0))
+        self.assertIs(odoo.por_nombre("LUMI_302").get("x_sp_folder_url"), None)
+        self.assertTrue(any("no se pudo resolver la carpeta" in l for l in logs))
+
+    def test_sin_resolver_carpeta_no_toca_la_url(self):
+        odoo, trk = FakeOdoo(), FakeTracker(tracker_base())
+        correr(odoo, trk)  # sin resolver_carpeta (default None), como hasta ahora
+        self.assertIs(odoo.por_nombre("LUMI_302").get("x_sp_folder_url"), None)
 
 
 if __name__ == "__main__":

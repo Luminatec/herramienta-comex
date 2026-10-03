@@ -52,6 +52,26 @@ CAMPOS_MANO = (
 # lee de S.params (gp_despPct, gp_termCont, gp_fwd, gp_fijos) y cae a estos valores.
 GASTOS_DEFAULTS = {"gp_despPct": 0.005, "gp_termCont": 2000.0, "gp_fwd": 930.0, "gp_fijos": 200.0}
 
+# Mirror manual de DOC_CAT (index.html) -- (tipo, nombre, etapa_min). Solo Argentina: el sync de
+# x.comex.embarque es LUMI_* unicamente (ver PREFIJO_AR); si algun dia se sincroniza Peru, agregar
+# el equivalente de DOC_CAT_PE aca.
+DOC_CAT_AR = (
+    ("orden", "Orden / Reserva", 0),
+    ("proforma", "Factura proforma", 1),
+    ("fcprov", "Factura comercial del proveedor", 2),
+    ("swift", "Swift / comprobante de pago a proveedor", 2),
+    ("packing", "Packing list", 2),
+    ("bl", "BL / HBL", 2),
+    ("fflete", "Factura de flete / agente de carga", 3),
+    ("aviso", "Aviso de llegada", 4),
+    ("despacho", "Despacho / DI (provisorio)", 5),
+    ("fterminal", "Factura de terminal", 5),
+    ("gastos", "Gastos de agente / honorarios", 5),
+    ("dioficial", "DI oficializada", 6),
+    ("boletas", "Boletas de pago de impuestos", 6),
+    ("liquid", "Liquidación final del despachante", 6),
+)
+
 
 class ConflictoTracker(Exception):
     """El etag de comex_data.json cambio entre la lectura y la escritura (HTTP 412)."""
@@ -258,6 +278,25 @@ def saldo_pagos(seg):
                if isinstance(p, dict) and not p.get("pagado"))
 
 
+def comandos_docs(seg):
+    """Comandos One2many para x_doc_ids a partir de docsChk (dict {tipo: True|'na'} del tracker).
+
+    Reemplaza el set completo (unlink-all + create-all) en vez de diffear fila a fila: mas simple,
+    y sigue siendo idempotente -- nunca duplica, converge siempre al mismo estado final -- porque
+    estas filas no tienen ninguna referencia externa que preservar entre corridas.
+    """
+    chk = seg.get("docsChk") or {}
+    comandos = [(5, 0, 0)]
+    for i, (tipo, nombre, etapa_min) in enumerate(DOC_CAT_AR):
+        v = chk.get(tipo) if isinstance(chk, dict) else None
+        estado = "ok" if v is True else ("na" if v == "na" else "pend")
+        comandos.append((0, 0, {
+            "tipo": tipo, "nombre": nombre, "etapa_min": etapa_min, "estado": estado,
+            "sequence": (i + 1) * 10,
+        }))
+    return comandos
+
+
 def valores_pipeline(seg, real, va, gp=None, ahora=None):
     """Campos que mandan SIEMPRE tracker -> Odoo (mas lo calculado a partir de comex_odoo_real.json)."""
     real = real or {}
@@ -310,11 +349,26 @@ def valores_mano(resueltos, omitir):
 
 # ----------------------------------------------------------------------------- orquestacion
 
+def _soporta_docs(odoo):
+    """True si esta instancia ya tiene el checklist de documentos / carpeta SharePoint de la Fase 1
+    del tablero: el modelo x.comex.doc Y los campos x_sp_folder_url / x_doc_ids en x.comex.embarque.
+    Deploy en dos repos (modulo Odoo + este sync): si uno llega antes que el otro -- el modulo se
+    mergeo pero Odoo.sh todavia no lo actualizo, o este sync se mergeo antes que el modulo --, esto
+    da False y el sync sigue sin esos campos en vez de romper (mismo criterio que el chequeo de
+    modulo instalado de mas abajo, pero sin saltear el resto del sync)."""
+    if not odoo("ir.model", "search_count", [[["model", "=", "x.comex.doc"]]]):
+        return False
+    campos = odoo(MODELO, "fields_get", [], {"attributes": []})
+    return "x_sp_folder_url" in campos and "x_doc_ids" in campos
+
+
 def sincronizar(odoo, leer_tracker, escribir_tracker, guardar_backup, reales,
-                dry_run=False, log=print, ahora=None, max_intentos=3):
+                dry_run=False, log=print, ahora=None, max_intentos=3, resolver_carpeta=None):
     """odoo(model, method, args, kwargs=None); leer_tracker() -> (data, etag);
     escribir_tracker(data, etag) (lanza ConflictoTracker ante 412); guardar_backup(data);
-    reales = lista `embarques` de comex_odoo_real.json. Devuelve un resumen (dict)."""
+    reales = lista `embarques` de comex_odoo_real.json. resolver_carpeta(embarque_id) -> url|None,
+    opcional: se llama como mucho una vez por embarque (solo si todavia no tiene x_sp_folder_url) y
+    nunca bloquea el resto del sync si falla. Devuelve un resumen (dict)."""
     ctx = {"context": {"allowed_company_ids": [COMPANY_ID]}}
     resumen = {"skipped": False, "tracker_escrito": False, "writeback_ok": True,
                "cambios_tracker": {}, "creados": 0, "actualizados": 0, "va_pendiente": [],
@@ -325,7 +379,14 @@ def sincronizar(odoo, leer_tracker, escribir_tracker, guardar_backup, reales,
         resumen["skipped"] = True
         return resumen
 
-    campos_leer = ["name"] + [f for xf, _tk in CAMPOS_MANO for f in (xf, xf + "_sync")]
+    soporta_docs = _soporta_docs(odoo)
+    if not soporta_docs:
+        log("SYNC: el checklist de documentos (x.comex.doc / x_sp_folder_url / x_doc_ids) todavia no "
+            "esta instalado/actualizado en esta instancia; se omite el espejo de documentos y de "
+            "carpeta SharePoint, el resto del sync sigue igual.")
+
+    campos_leer = ["name"] + (["x_sp_folder_url"] if soporta_docs else [])
+    campos_leer += [f for xf, _tk in CAMPOS_MANO for f in (xf, xf + "_sync")]
     data, etag = leer_tracker()
 
     def segs_ar(d):
@@ -411,6 +472,16 @@ def sincronizar(odoo, leer_tracker, escribir_tracker, guardar_backup, reales,
             log("SYNC: %s VA pendiente (sin nacVA ni ncmMix); x_gastos_est sin honorario, solo terminos fijos." % ident)
         vals = valores_pipeline(seg, reales_por_id.get(ident), va, gp, ahora)
         vals.update(valores_mano(resueltos, omitir))
+        if soporta_docs:
+            vals["x_doc_ids"] = comandos_docs(seg)
+            if resolver_carpeta and not (rec_b and rec_b.get("x_sp_folder_url")):
+                try:
+                    url = resolver_carpeta(ident)
+                except Exception as e:
+                    url = None
+                    log("SYNC: no se pudo resolver la carpeta de SharePoint de %s: %s" % (ident, e))
+                if url:
+                    vals["x_sp_folder_url"] = url
         if rec_b:
             # no reescribir lo que ya esta igual en los campos de mano / snapshot
             for k in [f for xf, _t in CAMPOS_MANO for f in (xf, xf + "_sync")]:
