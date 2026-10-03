@@ -41,12 +41,13 @@ class FakeOdoo:
     """Odoo en memoria: x.comex.embarque + facturas de Petdur."""
 
     def __init__(self, instalado=True, soporta_docs=True, soporta_nac_gastos=True,
-                 soporta_pagos=True, soporta_giros=True):
+                 soporta_pagos=True, soporta_giros=True, soporta_doc_url=True):
         self.instalado = instalado
         self.soporta_docs = soporta_docs
         self.soporta_nac_gastos = soporta_nac_gastos
         self.soporta_pagos = soporta_pagos
         self.soporta_giros = soporta_giros
+        self.soporta_doc_url = soporta_doc_url
         self.recs = {}
         self.next_id = 1
         self.giros = {}
@@ -74,6 +75,11 @@ class FakeOdoo:
                 campos.update({c: {} for c in S.CAMPOS_NAC_GASTOS_BREAKDOWN})
             if self.soporta_pagos:
                 campos.update({"x_pago_ids": {}})
+            return campos
+        if model == "x.comex.doc" and method == "fields_get":
+            campos = {"tipo": {}, "nombre": {}, "estado": {}}
+            if self.soporta_doc_url:
+                campos["x_url"] = {}
             return campos
         if model == "x.comex.giro":
             if method == "search":
@@ -297,6 +303,21 @@ class TestHelpers(unittest.TestCase):
         self.assertEqual(por_tipo["proforma"], "na")
         self.assertEqual(por_tipo["bl"], "pend", "False (no solo ausente) tambien es pendiente")
         self.assertEqual(por_tipo["fcprov"], "pend")
+
+    def test_comandos_docs_sin_incluir_url_no_manda_el_campo(self):
+        seg = dict(tracker_base()["seg"][0], docsChk={"orden": True},
+                   docsUrl={"orden": "https://sp.example/orden.pdf"})
+        comandos = S.comandos_docs(seg)  # incluir_url=False por defecto
+        self.assertNotIn("x_url", comandos[1][2])
+
+    def test_comandos_docs_incluir_url_mapea_por_tipo(self):
+        seg = dict(tracker_base()["seg"][0], docsChk={"orden": True, "proforma": "na"},
+                   docsUrl={"orden": "https://sp.example/orden.pdf"})
+        comandos = S.comandos_docs(seg, incluir_url=True)
+        por_tipo = {c[2]["tipo"]: c[2]["x_url"] for c in comandos[1:]}
+        self.assertEqual(por_tipo["orden"], "https://sp.example/orden.pdf")
+        self.assertEqual(por_tipo["proforma"], "", "sin URL para ese tipo: cadena vacia, no None")
+        self.assertEqual(por_tipo["fcprov"], "", "pendiente: sin URL")
 
     def test_comandos_pagos(self):
         comandos = S.comandos_pagos(tracker_base()["seg"][0])  # LUMI_302: anticipo pagado + saldo pendiente
@@ -640,6 +661,32 @@ class TestSoportaDocs(unittest.TestCase):
         res, logs = correr(fake, trk)
         self.assertEqual((res["creados"], res["actualizados"]), (2, 0))
         self.assertTrue(any("se omite el espejo de documentos" in l for l in logs))
+
+
+class TestSoportaDocUrl(unittest.TestCase):
+    """Mismo patron que TestSoportaDocs, para x_url (link por archivo del checklist)."""
+
+    def test_sin_soporte_se_omite_sin_romper(self):
+        data = dict(tracker_base())
+        data["seg"][0] = dict(data["seg"][0], docsChk={"orden": True},
+                               docsUrl={"orden": "https://sp.example/orden.pdf"})
+        odoo, trk = FakeOdoo(soporta_docs=True, soporta_doc_url=False), FakeTracker(data)
+        res, logs = correr(odoo, trk)
+        self.assertEqual((res["creados"], res["actualizados"]), (2, 0), "el resto del sync sigue igual")
+        comandos = odoo.por_nombre("LUMI_302")["x_doc_ids"]
+        self.assertTrue(all("x_url" not in c[2] for c in comandos[1:]))
+        self.assertTrue(any("se omite ese campo" in l for l in logs))
+
+    def test_con_soporte_manda_x_url_por_tipo(self):
+        data = dict(tracker_base())
+        data["seg"][0] = dict(data["seg"][0], docsChk={"orden": True},
+                               docsUrl={"orden": "https://sp.example/orden.pdf"})
+        odoo, trk = FakeOdoo(soporta_docs=True, soporta_doc_url=True), FakeTracker(data)
+        correr(odoo, trk)
+        comandos = odoo.por_nombre("LUMI_302")["x_doc_ids"]
+        por_tipo = {c[2]["tipo"]: c[2]["x_url"] for c in comandos[1:]}
+        self.assertEqual(por_tipo["orden"], "https://sp.example/orden.pdf")
+        self.assertEqual(por_tipo["fcprov"], "")
 
 
 class TestSoportaNacGastosBreakdown(unittest.TestCase):
