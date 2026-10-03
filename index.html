@@ -783,14 +783,13 @@ function guessDocKey(fn){fn=fn.toLowerCase();
  if(/factura|invoice|commercial.?invoice|[-_ ]ci[-_ ]|ci_|[-_ ]inv[-_ ]|ataf|101_a|[-_ ]a\d{3}/.test(fn))return 'fcprov';
  if(/orden|order|reserva|rsv|orderstatus/.test(fn))return 'orden';
  return null;}
-async function autoMarkDocs(ix){const r=S.seg[ix];if(!r.id){alert('Guardá el ID primero.');return;}const D=await embDocs(r.id);if(D.src===null){alert('No encontré documentos de '+r.id+' (ni en SharePoint ni en carpeta local).');return;}const files=D.items.map(x=>x.name);r.docsChk=r.docsChk||{};let cnt=0;files.forEach(f=>{const k=guessDocKey(f);if(k&&!r.docsChk[k]){r.docsChk[k]=true;cnt++;}});save();renderDocChk(ix);alert(cnt?('Marqué '+cnt+' documento(s) detectado(s) por nombre de archivo. Revisá y ajustá lo que falte.'):'No detecté documentos nuevos por nombre. Marcá a mano los que tengas.');}
+async function autoMarkDocs(ix){const r=S.seg[ix];if(!r.id){alert('Guardá el ID primero.');return;}const D=await embDocs(r.id);if(D.src===null){alert('No encontré documentos de '+r.id+' (ni en SharePoint ni en carpeta local).');return;}r.docsChk=r.docsChk||{};r.docsUrl=r.docsUrl||{};let cnt=0;D.items.forEach(f=>{const k=guessDocKey(f.name);if(k&&!r.docsChk[k]){r.docsChk[k]=true;if(f.webUrl)r.docsUrl[k]=f.webUrl;cnt++;}});save();renderDocChk(ix);alert(cnt?('Marqué '+cnt+' documento(s) detectado(s) por nombre de archivo. Revisá y ajustá lo que falte.'):'No detecté documentos nuevos por nombre. Marcá a mano los que tengas.');}
 async function autoMarkAllDocs(){if(!(await spReady())&&!fsGranted){alert('Iniciá sesión M365 o conectá la carpeta de documentos.');return;}
  let touched=0,marked=0,nofolder=[],detail=[];
  for(let ix=0;ix<S.seg.length;ix++){const r=S.seg[ix];if(!r.id)continue;
   let D;try{D=await embDocs(r.id);}catch(e){D={src:null,items:[]};}
   if(D.src===null){nofolder.push(r.id);continue;}
-  const files=D.items.map(x=>x.name);
-  r.docsChk=r.docsChk||{};let c=0;files.forEach(f=>{const k=guessDocKey(f);if(k&&!r.docsChk[k]){r.docsChk[k]=true;c++;}});
+  r.docsChk=r.docsChk||{};r.docsUrl=r.docsUrl||{};let c=0;D.items.forEach(f=>{const k=guessDocKey(f.name);if(k&&!r.docsChk[k]){r.docsChk[k]=true;if(f.webUrl)r.docsUrl[k]=f.webUrl;c++;}});
   if(c){marked+=c;touched++;detail.push(r.id+': +'+c);}}
  save();renderSeg();
  alert('Detección completa.\n'+marked+' documento(s) marcados en '+touched+' embarque(s).'+(detail.length?'\n\n'+detail.join('\n'):'')+(nofolder.length?'\n\nSin carpeta aún: '+nofolder.join(', '):''));}
