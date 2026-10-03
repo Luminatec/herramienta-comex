@@ -1113,7 +1113,7 @@ function gastosOpPanelHTML(){
 function nacPanelHTML(){
  if(typeof peruMode==='function'&&peruMode())return '';
  const seg=S.seg.filter(resMatch);
- const act=seg.filter(r=>r.pais==='Argentina'&&r.estado!=='Entregado'&&(r.ncmMix||[]).length);
+ const act=seg.filter(r=>r.pais==='Argentina'&&r.estado!=='Entregado'&&r.estado!=='Nacionalizado'&&(r.ncmMix||[]).length);
  let rows='',T={va:0,nr:0,iva:0,pi:0,pg:0,ii:0,ib:0,de:0};
  act.forEach(r=>{const c=computeNac(r);if(!c)return;T.va+=c.VA;T.nr+=c.noRecup;T.iva+=c.iva;T.pi+=c.pIva;T.pg+=c.pGan;T.ii+=c.impInt;T.ib+=c.iibb;T.de+=c.desembolso;
   rows+=`<tr><td><b>${r.id}</b><div class="muted" style="font-size:11px">${String(r.prod||'').slice(0,26)}</div></td><td class="right">${money(c.VA)}</td><td class="right">${money(c.noRecup)}</td><td class="right">${money(c.iva)}</td><td class="right">${money(c.pIva)}</td><td class="right">${money(c.pGan)}</td><td class="right">${c.impInt?money(c.impInt):'–'}</td><td class="right">${money(c.iibb)}</td><td class="right"><b>${money(c.desembolso)}</b></td></tr>`;});
