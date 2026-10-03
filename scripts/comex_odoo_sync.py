@@ -288,6 +288,83 @@ def saldo_pagos(seg):
                if isinstance(p, dict) and not p.get("pagado"))
 
 
+def comandos_pagos(seg):
+    """Comandos One2many para x_pago_ids a partir de seg.pagos (lista de {concepto, monto, fecha,
+    pagado} del tracker, ver r.pagos/renderPagos en index.html). Full-replace, mismo criterio que
+    comandos_docs(): estas filas no tienen una clave estable (ni siquiera un `tipo`, a diferencia de
+    los documentos) asi que no hay nada que preservar entre corridas."""
+    comandos = [(5, 0, 0)]
+    for p in seg.get("pagos") or []:
+        if not isinstance(p, dict):
+            continue
+        comandos.append((0, 0, {
+            "concepto": texto(p.get("concepto")) or "Pago",
+            "monto": num(p.get("monto")),
+            "fecha": fecha_odoo(p.get("fecha")),
+            "pagado": bool(p.get("pagado")),
+        }))
+    return comandos
+
+
+def _norm_dispo(s):
+    return re.sub(r"\s+", "", texto(s).lower())
+
+
+def girado_por_item(it, giros):
+    """Cuanto de un item de disponibilidad (S.dispo.items) ya se giro, segun S.dispo.giros. Mismo
+    emparejamiento por texto que giradoFor() en index.html (dispoHTML): NO es el motor de calculo
+    (eso es computeNac/gastosOpEst, que no se reimplementan), es una busqueda de Nº de factura /
+    referencia de embarque para agrupar giros ya hechos contra el monto disponible -- match exacto o
+    por substring, en cualquier direccion, contra `fac` primero y `ref` si no hay `fac`."""
+    fk, rk = _norm_dispo(it.get("fac")), _norm_dispo(it.get("ref"))
+    total = 0.0
+    for g in giros:
+        if not isinstance(g, dict):
+            continue
+        gk = _norm_dispo(g.get("fac")) or _norm_dispo(g.get("ref"))
+        if not gk:
+            continue
+        if (fk and (fk == gk or gk in fk or fk in gk)) or (rk and (rk == gk or gk in rk or rk in gk)):
+            total += num(g.get("monto"))
+    return total
+
+
+def comandos_giros(data):
+    """Filas de disponibilidad (x.comex.giro) a partir de S.dispo.items, con `girado` ya calculado
+    contra S.dispo.giros (ver girado_por_item). Global, no por embarque: ver nota del modulo
+    x.comex.giro sobre por que `ref` es texto libre."""
+    dispo = data.get("dispo") or {}
+    items = [it for it in (dispo.get("items") or []) if isinstance(it, dict)]
+    giros = [g for g in (dispo.get("giros") or []) if isinstance(g, dict)]
+    filas = []
+    for it in items:
+        filas.append({
+            "fecha": fecha_odoo(it.get("fecha")),
+            "ref": texto(it.get("ref")),
+            "fac": texto(it.get("fac")),
+            "banco": texto(it.get("banco")),
+            "nota": texto(it.get("nota")),
+            "monto": num(it.get("monto")),
+            "girado": girado_por_item(it, giros),
+        })
+    return filas
+
+
+def sincronizar_giros(odoo, data, ctx, log):
+    """Reemplaza TODAS las filas de x.comex.giro por las de S.dispo.items (ver comandos_giros).
+    Modelo global (no pertenece a un embarque puntual: las `ref` pueden ser de países que ni
+    siquiera se sincronizan a Odoo, ver PREFIJO_AR), asi que el reemplazo es por compañía entera en
+    vez de por registro -- mismo criterio idempotente que comandos_docs(), a nivel modelo completo
+    en lugar de One2many."""
+    filas = comandos_giros(data)
+    existentes = odoo("x.comex.giro", "search", [[["company_id", "=", COMPANY_ID]]], ctx)
+    if existentes:
+        odoo("x.comex.giro", "unlink", [existentes], ctx)
+    for fila in filas:
+        odoo("x.comex.giro", "create", [dict(fila, company_id=COMPANY_ID)], ctx)
+    log("SYNC: disponibilidad de giros reemplazada (%d fila(s))." % len(filas))
+
+
 def comandos_docs(seg):
     """Comandos One2many para x_doc_ids a partir de docsChk (dict {tipo: True|'na'} del tracker).
 
@@ -399,6 +476,22 @@ def _soporta_nac_gastos_breakdown(odoo):
     return all(c in campos for c in CAMPOS_NAC_GASTOS_BREAKDOWN)
 
 
+def _soporta_pagos(odoo):
+    """True si esta instancia ya tiene los pagos por embarque (Fase 2.3): el modelo x.comex.pago Y
+    el campo x_pago_ids en x.comex.embarque. Mismo patron que _soporta_docs (deploy en dos repos,
+    puede llegar desfasado)."""
+    if not odoo("ir.model", "search_count", [[["model", "=", "x.comex.pago"]]]):
+        return False
+    campos = odoo(MODELO, "fields_get", [], {"attributes": []})
+    return "x_pago_ids" in campos
+
+
+def _soporta_giros(odoo):
+    """True si el modelo x.comex.giro (disponibilidad global de giros al exterior, Fase 2.3) ya
+    existe en esta instancia. No depende de ningun campo de x.comex.embarque: es un modelo aparte."""
+    return bool(odoo("ir.model", "search_count", [[["model", "=", "x.comex.giro"]]]))
+
+
 def _soporta_docs(odoo):
     """True si esta instancia ya tiene el checklist de documentos / carpeta SharePoint de la Fase 1
     del tablero: el modelo x.comex.doc Y los campos x_sp_folder_url / x_doc_ids en x.comex.embarque.
@@ -439,6 +532,14 @@ def sincronizar(odoo, leer_tracker, escribir_tracker, guardar_backup, reales,
         log("SYNC: el desglose de nacionalizacion real / gastos estimados (Fase 2.1+2.2) todavia no "
             "esta instalado/actualizado en esta instancia; se omite ese desglose, el resto del sync "
             "sigue igual.")
+    soporta_pagos = _soporta_pagos(odoo)
+    if not soporta_pagos:
+        log("SYNC: los pagos por embarque (x.comex.pago, Fase 2.3) todavia no estan "
+            "instalados/actualizados en esta instancia; se omite ese espejo, el resto del sync sigue igual.")
+    soporta_giros = _soporta_giros(odoo)
+    if not soporta_giros:
+        log("SYNC: la disponibilidad de giros al exterior (x.comex.giro, Fase 2.3) todavia no esta "
+            "instalada en esta instancia; se omite, el resto del sync sigue igual.")
 
     campos_leer = ["name"] + (["x_sp_folder_url"] if soporta_docs else [])
     campos_leer += [f for xf, _tk in CAMPOS_MANO for f in (xf, xf + "_sync")]
@@ -530,6 +631,8 @@ def sincronizar(odoo, leer_tracker, escribir_tracker, guardar_backup, reales,
             for k in CAMPOS_NAC_GASTOS_BREAKDOWN:
                 vals.pop(k, None)
         vals.update(valores_mano(resueltos, omitir))
+        if soporta_pagos:
+            vals["x_pago_ids"] = comandos_pagos(seg)
         if soporta_docs:
             vals["x_doc_ids"] = comandos_docs(seg)
             if resolver_carpeta and not (rec_b and rec_b.get("x_sp_folder_url")):
@@ -558,4 +661,12 @@ def sincronizar(odoo, leer_tracker, escribir_tracker, guardar_backup, reales,
             resumen["creados"] += 1
     log("SYNC fase B: %d creado(s), %d actualizado(s), %d con VA pendiente." % (
         resumen["creados"], resumen["actualizados"], len(resumen["va_pendiente"])))
+
+    # ---- Fase C: disponibilidad de giros (global, no por embarque -- ver sincronizar_giros)
+    if soporta_giros:
+        if dry_run:
+            log("SYNC (dry-run): giros -> %d fila(s)." % len(comandos_giros(data)))
+        else:
+            sincronizar_giros(odoo, data, ctx, log)
+
     return resumen
