@@ -200,6 +200,51 @@ class TestHelpers(unittest.TestCase):
         self.assertEqual(v["x_f_ofic"], False)
         self.assertEqual(v["company_id"], 6)
 
+    def test_valores_pipeline_desglose_nac_real_y_gastos_est(self):
+        seg = tracker_base()["seg"][0]
+        real_completo = {
+            "gastosReal": {"total": 2688.0, "parcial": False},
+            "nacReal": {
+                "fecha": "2026-09-09", "di": "26001IC04179604W", "tc": 1512.0,
+                "VA": 239625.37, "noRecup": 10271.0, "iva": 44941.52, "pIva": 0.0,
+                "pGan": 0.0, "impInt": 0.0, "iibb": 8566.34, "credito": 53507.86,
+                "desembolso": 63778.78,
+            },
+            "nacEstSnap": None,
+        }
+        v = S.valores_pipeline(seg, real_completo, 153799.52)
+        self.assertEqual(v["x_nac_real_va"], 239625.37)
+        self.assertEqual(v["x_nac_real_norecup"], 10271.0)
+        self.assertEqual(v["x_nac_real_iva"], 44941.52)
+        self.assertEqual(v["x_nac_real_piva"], 0.0)
+        self.assertEqual(v["x_nac_real_pgan"], 0.0)
+        self.assertEqual(v["x_nac_real_impint"], 0.0)
+        self.assertEqual(v["x_nac_real_iibb"], 8566.34)
+        self.assertEqual(v["x_nac_real_credito"], 53507.86)
+        self.assertEqual(v["x_nac_real_tc"], 1512.0)
+        self.assertEqual(v["x_nac_real_di"], "26001IC04179604W")
+        self.assertEqual(v["x_nac_real_fecha"], "2026-09-09")
+        gastos = S.gastos_est_breakdown(153799.52, 2)
+        self.assertAlmostEqual(v["x_gastos_honor"], gastos["honor"])
+        self.assertAlmostEqual(v["x_gastos_term"], gastos["term"])
+        self.assertEqual(v["x_gastos_fwd"], gastos["fwd"])
+        self.assertEqual(v["x_gastos_fijos"], gastos["fijos"])
+        self.assertAlmostEqual(v["x_gastos_est"], gastos["total"])
+
+    def test_valores_pipeline_sin_nac_real_desglose_en_cero(self):
+        seg = tracker_base()["seg"][0]
+        v = S.valores_pipeline(seg, REALES[0], 153799.52)  # REALES[0] solo trae "desembolso"
+        self.assertEqual(v["x_nac_real_va"], 0.0)
+        self.assertEqual(v["x_nac_real_di"], "")
+        self.assertIs(v["x_nac_real_fecha"], False)
+
+    def test_gastos_est_breakdown_suma_el_total(self):
+        b = S.gastos_est_breakdown(153799.52, 2)
+        self.assertAlmostEqual(b["honor"] + b["term"] + b["fwd"] + b["fijos"], b["total"])
+        self.assertAlmostEqual(b["total"], S.gastos_est_usd(153799.52, 2))
+        self.assertAlmostEqual(b["honor"], 153799.52 * S.GASTOS_DEFAULTS["gp_despPct"])
+        self.assertEqual(b["term"], 2 * S.GASTOS_DEFAULTS["gp_termCont"])
+
     def test_valores_pipeline_nac_est_prefiere_snapshot(self):
         seg = tracker_base()["seg"][0]
         v = S.valores_pipeline(seg, {"nacEstSnap": 39000}, None)
