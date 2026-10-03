@@ -456,7 +456,7 @@ async function findInvoiceItems(ix,dk){const r=S.seg[ix];const D=await embDocs(r
  const pareceNotaODebito=its=>its.length>0&&(its.every(i=>{const q=num(i.qty);return q>0&&q<1;})||(its.length<=2&&its.some(i=>/\bfee\b/i.test(i.desc||''))));
  const all=D.items.filter(f=>/\.(xlsx?|pdf)$/i.test(f.name)&&!/^~\$/.test(f.name)&&!esNotaOFee(f.name)).map(f=>[f.name,f]);
  const parse=async list=>{for(const [n,f] of list){try{let best=[];
-   if(/\.pdf$/i.test(n)){const lines=await readPdfText(await f.get());best=detectB2Box(lines,dk);if(!best.length)best=detectItems(lines.map(l=>l.split(/\s{2,}/)),dk);if(!best.length)best=detectInvoiceLines(lines,dk);}
+   if(/\.pdf$/i.test(n)){const lines=await readPdfText(await f.get());best=detectCanonInvoice(lines,dk);if(!best.length)best=detectB2Box(lines,dk);if(!best.length)best=detectItems(lines.map(l=>l.split(/\s{2,}/)),dk);if(!best.length)best=detectInvoiceLines(lines,dk);}
    else{if(typeof XLSX==='undefined')continue;const wb=XLSX.read(new Uint8Array(await (await f.get()).arrayBuffer()),{type:'array'});wb.SheetNames.forEach(sn=>{const it=detectItems(XLSX.utils.sheet_to_json(wb.Sheets[sn],{header:1,defval:''}),dk);if(it.length>best.length)best=it;});}
    if(best.length&&!pareceNotaODebito(best))return {items:best,file:n};
   }catch(e){}}return null;};
@@ -887,6 +887,40 @@ function detectItems(rows,dk){
  if(hdr>=0)return build(rows.slice(hdr+1),map);
  return build(rows,{sku:0,desc:1,qty:2,fob:3,der:4});
 }
+function detectCanonInvoice(lines,dk){
+ // Factura CANON/CUSA (ATAF): ver HANDOFF "Auto archivar y parsear facturas CANON (CUSA)" --
+ // spec verificada contra los 4 PDF reales de LUMI_306 (2 invoice + 2 packing list). El ancla es
+ // el número de pedido N-CLU26/<nro> del encabezado (CUSA_Export_Operations@cusa.canon.com); si
+ // no aparece, no es CANON y sigue el flujo normal. El packing list no trae montos -- se archiva
+ // aparte (rutina de mail), acá no se parsea nada de esos PDF.
+ // OJO de extracción real: readPdfText junta ítems de la misma línea con '  ' -- "N-  CLU26/08855"
+ // y "PACKING  LIST" vienen con doble espacio (no "N-CLU26"/"PACKING LIST" como en pdftotext -layout).
+ const joined=(lines||[]).join('\n');
+ if(!/N-\s*CLU26\/\d+/.test(joined))return [];
+ if(/\bPACKING\s+LIST\b/i.test(joined))return []; // solo se archiva, no tiene montos que mostrar acá
+ if(!/\bINVOICE\b/.test(joined))return [];
+ const num=s=>parseFloat(String(s).replace(/,/g,''));
+ const mExw=joined.match(/EXW\s+MIAMI[^\n]*?USD\s+([\d,]+\.\d{2})/i);
+ if(!mExw)return [];
+ const totalEXW=num(mExw[1]);
+ const reItem=/^\s*(\d{3})\s+([A-Z0-9]+)\s+(.+?)\s+([\d,]+)\s+PCS\.\s+([\d,]+\.\d{2})\s+([\d,]+\.\d{2})\s*$/;
+ const filas=[];
+ for(const raw of (lines||[])){
+  const m=(raw||'').match(reItem);if(!m)continue;
+  const qty=num(m[4]),fobUnit=num(m[5]),fobTotal=num(m[6]);
+  if(!(isFinite(qty)&&qty>0&&isFinite(fobUnit)&&isFinite(fobTotal)))continue;
+  filas.push({sku:m[2],desc:m[3].replace(/\s+/g,' ').trim(),qty,fobUnit,fobTotal});
+ }
+ if(!filas.length)return [];
+ // Gate de control (mismo criterio honesto que los otros fixes): si la suma de ítems no cuadra
+ // con el total EXW de la factura, no se carga nada -- se descarta para revisar a mano.
+ const sumaFobTotal=filas.reduce((a,b)=>a+b.fobTotal,0);
+ if(Math.abs(sumaFobTotal-totalEXW)>0.005){
+  console.warn('CANON: Σ ítems ('+sumaFobTotal.toFixed(2)+') no cuadra con el total EXW ('+totalEXW.toFixed(2)+'); se descarta, revisar a mano.');
+  return [];
+ }
+ return filas.map(f=>{const it={sku:f.sku,desc:f.desc,qty:f.qty,fob:f.fobUnit,ncm:''};it[dk]=0;return it;});
+}
 function detectB2Box(lines,dk){
  // Formato B2BOX/AZIA Pro: el nombre del "Producto" va en una línea de texto separada (por la
  // celda de foto), varias líneas ANTES de la fila numérica de esa partida (# Pcs/Caja Cajas
@@ -951,7 +985,7 @@ function applyItems(c,items){
 }
 function loadRows(c,rows){const dk=c==='ar'?'der':'adv';const items=detectItems(rows,dk);if(!items.length){alert('No pude detectar las columnas de Cantidad y Precio unitario. Descargá la "Plantilla" y pegá los datos con ese formato.');return;}applyItems(c,items);}
 async function readPdfText(blob){if(typeof pdfjsLib==='undefined')throw new Error('El lector de PDF no cargó (requiere internet la primera vez que abrís la app).');const buf=await blob.arrayBuffer();const pdf=await pdfjsLib.getDocument({data:buf}).promise;const lines=[];for(let p=1;p<=pdf.numPages;p++){const page=await pdf.getPage(p);const tc=await page.getTextContent();const byY={};tc.items.forEach(it=>{if(!it.str||!it.str.trim())return;const y=Math.round(it.transform[5]);(byY[y]=byY[y]||[]).push([it.transform[4],it.str]);});Object.keys(byY).map(Number).sort((a,b)=>b-a).forEach(y=>{lines.push(byY[y].sort((a,b)=>a[0]-b[0]).map(x=>x[1]).join('  '));});}return lines;}
-async function processPdf(c,blob){let lines;try{lines=await readPdfText(blob);}catch(e){alert(e.message);return;}const dk=c==='ar'?'der':'adv';const rows=lines.map(l=>l.split(/\s{2,}/).map(x=>x.trim()));let items=detectB2Box(lines,dk);if(!items.length)items=detectItems(rows,dk);if(!items.length)items=detectInvoiceLines(lines,dk);if(items.length){applyItems(c,items);}else{showPaste(c,lines.join('\n'));setTimeout(()=>alert('No pude estructurar el PDF automáticamente. Te dejo el texto extraído para que lo revises y pegues (columnas: SKU, Descripción, Cantidad, FOB unitario).'),120);}}
+async function processPdf(c,blob){let lines;try{lines=await readPdfText(blob);}catch(e){alert(e.message);return;}const dk=c==='ar'?'der':'adv';const rows=lines.map(l=>l.split(/\s{2,}/).map(x=>x.trim()));let items=detectCanonInvoice(lines,dk);if(!items.length)items=detectB2Box(lines,dk);if(!items.length)items=detectItems(rows,dk);if(!items.length)items=detectInvoiceLines(lines,dk);if(items.length){applyItems(c,items);}else{showPaste(c,lines.join('\n'));setTimeout(()=>alert('No pude estructurar el PDF automáticamente. Te dejo el texto extraído para que lo revises y pegues (columnas: SKU, Descripción, Cantidad, FOB unitario).'),120);}}
 function showPaste(c,prefill){const ov=document.createElement('div');ov.style="position:fixed;inset:0;background:rgba(0,0,0,.4);display:flex;align-items:center;justify-content:center;z-index:99";
  ov.innerHTML=`<div style="background:#fff;padding:16px;border-radius:8px;max-width:560px;width:90%">
   <h3>Pegar filas de la factura</h3>
