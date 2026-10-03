@@ -365,22 +365,30 @@ def sincronizar_giros(odoo, data, ctx, log):
     log("SYNC: disponibilidad de giros reemplazada (%d fila(s))." % len(filas))
 
 
-def comandos_docs(seg):
+def comandos_docs(seg, incluir_url=False):
     """Comandos One2many para x_doc_ids a partir de docsChk (dict {tipo: True|'na'} del tracker).
 
     Reemplaza el set completo (unlink-all + create-all) en vez de diffear fila a fila: mas simple,
     y sigue siendo idempotente -- nunca duplica, converge siempre al mismo estado final -- porque
     estas filas no tienen ninguna referencia externa que preservar entre corridas.
+
+    incluir_url: si hay soporte (_soporta_doc_url), suma x_url desde seg.docsUrl (dict {tipo: url}
+    que carga la herramienta cuando el detector por nombre de archivo clasifica un documento --
+    ver autoMarkDocs/autoMarkAllDocs en index.html). Sin detector o sin soporte, x_url queda ''.
     """
     chk = seg.get("docsChk") or {}
+    urls = (seg.get("docsUrl") or {}) if incluir_url else {}
     comandos = [(5, 0, 0)]
     for i, (tipo, nombre, etapa_min) in enumerate(DOC_CAT_AR):
         v = chk.get(tipo) if isinstance(chk, dict) else None
         estado = "ok" if v is True else ("na" if v == "na" else "pend")
-        comandos.append((0, 0, {
+        fila = {
             "tipo": tipo, "nombre": nombre, "etapa_min": etapa_min, "estado": estado,
             "sequence": (i + 1) * 10,
-        }))
+        }
+        if incluir_url:
+            fila["x_url"] = texto(urls.get(tipo))
+        comandos.append((0, 0, fila))
     return comandos
 
 
@@ -505,6 +513,14 @@ def _soporta_docs(odoo):
     return "x_sp_folder_url" in campos and "x_doc_ids" in campos
 
 
+def _soporta_doc_url(odoo):
+    """True si x.comex.doc ya tiene x_url (link por archivo del checklist). Se llama solo cuando
+    _soporta_docs ya dio True (si no, x.comex.doc puede ni existir todavia). Mismo criterio de
+    guard que el resto: sin soporte, se omite x_url y el resto del checklist sigue igual."""
+    campos = odoo("x.comex.doc", "fields_get", [], {"attributes": []})
+    return "x_url" in campos
+
+
 def sincronizar(odoo, leer_tracker, escribir_tracker, guardar_backup, reales,
                 dry_run=False, log=print, ahora=None, max_intentos=3, resolver_carpeta=None):
     """odoo(model, method, args, kwargs=None); leer_tracker() -> (data, etag);
@@ -527,6 +543,11 @@ def sincronizar(odoo, leer_tracker, escribir_tracker, guardar_backup, reales,
         log("SYNC: el checklist de documentos (x.comex.doc / x_sp_folder_url / x_doc_ids) todavia no "
             "esta instalado/actualizado en esta instancia; se omite el espejo de documentos y de "
             "carpeta SharePoint, el resto del sync sigue igual.")
+    soporta_doc_url = soporta_docs and _soporta_doc_url(odoo)
+    if soporta_docs and not soporta_doc_url:
+        log("SYNC: el link por archivo del checklist (x.comex.doc.x_url) todavia no esta "
+            "instalado/actualizado en esta instancia; se omite ese campo, el resto del checklist "
+            "sigue igual.")
     soporta_nac_gastos = _soporta_nac_gastos_breakdown(odoo)
     if not soporta_nac_gastos:
         log("SYNC: el desglose de nacionalizacion real / gastos estimados (Fase 2.1+2.2) todavia no "
@@ -634,7 +655,7 @@ def sincronizar(odoo, leer_tracker, escribir_tracker, guardar_backup, reales,
         if soporta_pagos:
             vals["x_pago_ids"] = comandos_pagos(seg)
         if soporta_docs:
-            vals["x_doc_ids"] = comandos_docs(seg)
+            vals["x_doc_ids"] = comandos_docs(seg, incluir_url=soporta_doc_url)
             if resolver_carpeta and not (rec_b and rec_b.get("x_sp_folder_url")):
                 try:
                     url = resolver_carpeta(ident)
