@@ -12,7 +12,7 @@ Sync por DUEÑO DE CAMPO (nunca last-write-wins por registro):
   tracker -> Odoo. En Odoo son solo lectura.
 * Campos de mano (notas, despa, opDesp  <->  x_notas, x_despachante, x_operador): se editan en Odoo.
   Odoo guarda el ultimo valor sincronizado en x_*_sync; si el valor actual de Odoo difiere de ese
-  snapshot, el usuario lo edito en Odoo y ESE valor gana y se escribe de vuelta en comex_data.json.
+  snapshot, el usuario lo edito hen Odoo y ESE valor gana y se escribe de vuelta en comex_data.json.
   Si no cambio en Odoo, manda el tracker.
 
 Fase A -- leer Odoo, resolver los campos de mano y escribir en comex_data.json SOLO esos campos.
@@ -334,7 +334,7 @@ def comandos_giros(data):
     contra S.dispo.giros (ver girado_por_item). Global, no por embarque: ver nota del modulo
     x.comex.giro sobre por que `ref` es texto libre."""
     dispo = data.get("dispo") or {}
-    items = [it for it in (dispo.get("items") or []) if isinstance(it, dict)]
+    items = [it for it in (dispo.get("items") or []) if isinstance(it, dict) and texto(it.get("ref")).upper().startswith("LUMI_")]
     giros = [g for g in (dispo.get("giros") or []) if isinstance(g, dict)]
     filas = []
     for it in items:
