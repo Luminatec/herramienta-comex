@@ -332,9 +332,16 @@ def girado_por_item(it, giros):
 def comandos_giros(data):
     """Filas de disponibilidad (x.comex.giro) a partir de S.dispo.items, con `girado` ya calculado
     contra S.dispo.giros (ver girado_por_item). Global, no por embarque: ver nota del modulo
-    x.comex.giro sobre por que `ref` es texto libre."""
+    x.comex.giro sobre por que `ref` es texto libre.
+
+    SOLO ARGENTINA: x.comex.embarque es LUMI_* unicamente (PREFIJO_AR, ver segs_ar()); S.dispo.items
+    no trae un campo de pais propio, asi que se deriva del prefijo de `ref` (LUMI_ = Argentina,
+    LUPE_ = Peru). Sin este filtro, el tablero (AR-only) terminaba mostrando tambien los giros de
+    Peru. La herramienta (index.html) sigue mostrando ambos paises -- esto es solo lo que se
+    espeja a Odoo."""
     dispo = data.get("dispo") or {}
-    items = [it for it in (dispo.get("items") or []) if isinstance(it, dict)]
+    items = [it for it in (dispo.get("items") or [])
+             if isinstance(it, dict) and texto(it.get("ref")).upper().startswith(PREFIJO_AR)]
     giros = [g for g in (dispo.get("giros") or []) if isinstance(g, dict)]
     filas = []
     for it in items:

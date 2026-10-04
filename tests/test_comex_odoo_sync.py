@@ -13,7 +13,7 @@ def tracker_base():
         "_ts": 1000,
         "params": {"gp_fwd": 930},
         "ncm": {"base": {"fletePctDefault": 2, "seguroPct": 1}},
-        "dispo": {"items": [{"fac": "A", "monto": 5}], "giros": []},
+        "dispo": {"items": [{"fac": "A", "ref": "LUMI_302", "monto": 5}], "giros": []},
         "seg": [
             {"id": "LUMI_302", "pais": "Argentina", "prov": "Prov A", "prod": "Producto A", "origen": "China",
              "modo": "Marítimo", "inco": "FOB", "estado": "en transito", "fOrden": "2026-07-01", "etd": "2026-08-01",
@@ -350,11 +350,19 @@ class TestHelpers(unittest.TestCase):
             "giros": [{"fac": "F-100", "monto": 400.0}],
         })
         filas = S.comandos_giros(data)
-        self.assertEqual(len(filas), 2)
+        self.assertEqual(len(filas), 1, "el item LUPE_010 (Peru) queda afuera -- ver test de exclusion")
         self.assertEqual(filas[0], {"fecha": "2026-09-01", "ref": "LUMI_302", "fac": "F-100",
                                      "banco": "Santander", "nota": "nota", "monto": 1500.0, "girado": 400.0})
-        self.assertEqual(filas[1], {"fecha": False, "ref": "LUPE_010", "fac": "", "banco": "", "nota": "",
-                                     "monto": 200.0, "girado": 0.0})
+
+    def test_comandos_giros_excluye_peru(self):
+        # Solo Argentina: el tablero Odoo es LUMI_*-only (PREFIJO_AR). S.dispo.items no trae un
+        # campo de pais propio -- se deriva del prefijo de `ref`. Un item LUPE_ (Peru) no debe
+        # convertirse en fila de x.comex.giro, aunque la herramienta lo siga mostrando a ella.
+        data = dict(tracker_base(), dispo={
+            "items": [{"ref": "LUPE_010", "fac": "P-1", "monto": 300.0}],
+            "giros": [],
+        })
+        self.assertEqual(S.comandos_giros(data), [])
 
     def test_comandos_giros_sin_dispo(self):
         self.assertEqual(S.comandos_giros({}), [])
@@ -757,11 +765,15 @@ class TestSincronizarGiros(unittest.TestCase):
         self.assertEqual(len(odoo.giros), 1)
         id_viejo = next(iter(odoo.giros))
 
-        trk.data["dispo"]["items"] = [{"fac": "A", "monto": 5}, {"ref": "LUPE_010", "monto": 300}]
+        trk.data["dispo"]["items"] = [
+            {"fac": "A", "ref": "LUMI_302", "monto": 5},
+            {"ref": "LUMI_305", "monto": 300},
+            {"ref": "LUPE_010", "monto": 999},  # Peru: no debe sobrevivir al reemplazo
+        ]
         correr(odoo, trk)
-        self.assertEqual(len(odoo.giros), 2, "reemplaza todo el set, no acumula")
+        self.assertEqual(len(odoo.giros), 2, "reemplaza todo el set, no acumula (y excluye el item de Peru)")
         self.assertNotIn(id_viejo, odoo.giros, "las filas viejas se borran (ids nuevos)")
-        self.assertEqual(sorted(g["ref"] or g["fac"] for g in odoo.giros.values()), ["A", "LUPE_010"])
+        self.assertEqual(sorted(g["ref"] or g["fac"] for g in odoo.giros.values()), ["LUMI_302", "LUMI_305"])
 
     def test_dry_run_no_escribe_giros(self):
         odoo, trk = FakeOdoo(), FakeTracker(tracker_base())
