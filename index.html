@@ -157,7 +157,7 @@ button.mini{padding:3px 8px;font-size:12px}
 // ---------- estado + persistencia ----------
 const LS="comex_luminatec_v1";
 const defaults={
- params:{ar_tasa:0.03,ar_t1:180,ar_t2:3000,ar_t3:30000,ar_t4:150000,ar_iva:0.21,ar_ivar:0.105,ar_pIva:0.20,ar_pIvaR:0.10,ar_pGan:0.06,ar_arancel:10,
+ params:{ar_tasa:0.03,ar_t1:180,ar_t2:3000,ar_t3:30000,ar_t4:150000,ar_iva:0.21,ar_ivar:0.105,ar_pIva:0.20,ar_pIvaR:0.10,ar_pGan:0.06,ar_exclPercep:1,ar_arancel:10,
          pe_igv:0.16,pe_ipm:0.02,pe_pIgvGen:0.035,pe_pIgv1:0.10,pe_pIgvU:0.05},
  ar:{tc:1442,flete:0,seguro:0,arancel:10,agente:0,honor:0,terminal:0,otros:0,iibb:0,tasaOv:"",margenObj:0,items:[{sku:"",desc:"",ncm:"",qty:0,fob:0,der:0,ivaR:0.21,pvp:0}]},
  pe:{tc:3.75,flete:0,seguro:0,isc:0,agente:0,almac:0,transp:0,otros:0,pIgv:0.035,margenObj:0,items:[{sku:"",desc:"",ncm:"",qty:0,fob:0,adv:0,pvp:0}]},
@@ -292,6 +292,7 @@ function renderParam(){
    ${row('ar_pIva','Percepción IVA general')}
    ${row('ar_pIvaR','Percepción IVA reducida')}
    ${row('ar_pGan','Percepción Ganancias')}
+   <div class="field"><label>Exclusión percepciones (RG2226) — 1=sí / 0=no</label><input class="in" value="${(p.ar_exclPercep==null?1:p.ar_exclPercep)}" onchange="setParam('ar_exclPercep',this.value,false)"><span class="muted">vig. 01/10/26–31/03/27</span></div>
    ${row('ar_arancel','Arancel SIM (fijo)',false)}
   </div>
   <div class="card"><h3>Perú (SUNAT)</h3>
@@ -328,11 +329,11 @@ function computeAR(){
  const landed=cifTot+costoNac;
  const baseImp=cifTot+derTot+tasa+arancel;
  const perItem=items.map(i=>{const nac=i.der+(tasa+arancel+gastos)*i.part;const lt=i.cif+nac;const lu=num(i.qty)?lt/num(i.qty):0;const pvp=num(i.pvp);const mar=pvp>0?(pvp-lu)/pvp:null;const ivaR=(i.ivaR!=null&&i.ivaR!=="")?num(i.ivaR):p.ar_iva;const baseI=i.cif+i.der+(tasa+arancel)*i.part;return{...i,nac,lt,lu,luLoc:lu*num(d.tc),pvp,mar,ivaItem:ivaR*baseI,pIvaItem:(ivaR>=p.ar_iva?p.ar_pIva:p.ar_pIvaR)*baseI};});
- const iva=perItem.reduce((s,x)=>s+x.ivaItem,0),pIva=perItem.reduce((s,x)=>s+x.pIvaItem,0),pGan=p.ar_pGan*baseImp,iibb=num(d.iibb);
+ const excl=(p.ar_exclPercep==null?1:num(p.ar_exclPercep));const iva=perItem.reduce((s,x)=>s+x.ivaItem,0),pIva=excl?0:perItem.reduce((s,x)=>s+x.pIvaItem,0),pGan=excl?0:p.ar_pGan*baseImp,iibb=num(d.iibb);
  const recup=iva+pIva+pGan+iibb;
  const desemb=costoNac+recup;
  const venta=perItem.reduce((s,x)=>s+x.pvp*num(x.qty),0);
- return{fobTot,cifTot,derTot,tasa,arancel,gastos,costoNac,landed,iva,pIva,pGan,iibb,recup,desemb,perItem,venta,ganancia:venta-landed,margenTot:venta>0?(venta-landed)/venta:null,gastoPct:fobTot?costoNac/fobTot:0};
+ return{fobTot,cifTot,derTot,tasa,arancel,gastos,costoNac,landed,iva,pIva,pGan,iibb,recup,desemb,excl,perItem,venta,ganancia:venta-landed,margenTot:venta>0?(venta-landed)/venta:null,gastoPct:fobTot?costoNac/fobTot:0};
 }
 function computePE(){
  const d=S.pe,p=S.params;
@@ -350,7 +351,7 @@ function computePE(){
  const desemb=costoNac+recup;
  const perItem=items.map(i=>{const nac=i.adv+(isc+gastos)*i.part;const lt=i.cif+nac;const lu=num(i.qty)?lt/num(i.qty):0;const pvp=num(i.pvp);const mar=pvp>0?(pvp-lu)/pvp:null;return{...i,nac,lt,lu,luLoc:lu*num(d.tc),pvp,mar};});
  const venta=perItem.reduce((s,x)=>s+x.pvp*num(x.qty),0);
- return{fobTot,cifTot,advTot,isc,gastos,igv,ipm,pIgv,costoNac,landed,recup,desemb,perItem,venta,ganancia:venta-landed,margenTot:venta>0?(venta-landed)/venta:null,gastoPct:fobTot?costoNac/fobTot:0};
+ return{fobTot,cifTot,advTot,isc,gastos,igv,ipm,pIgv,costoNac,landed,recup,desemb,excl,perItem,venta,ganancia:venta-landed,margenTot:venta>0?(venta-landed)/venta:null,gastoPct:fobTot?costoNac/fobTot:0};
 }
 
 function itemsTable(country){
@@ -539,6 +540,7 @@ function renderAR(){
    <div class="res mut"><span>IVA importación (crédito fiscal)</span><span>${money(R.iva)}</span></div>
    <div class="res mut"><span>Percepción IVA (crédito)</span><span>${money(R.pIva)}</span></div>
    <div class="res mut"><span>Percepción Ganancias 6% (crédito)</span><span>${money(R.pGan)}</span></div>
+   ${R.excl?'<div class="res mut"><span>⚠ Percepciones IVA/Ganancias</span><span>EXCLUIDAS · RG2226 vig. 01/10/26–31/03/27</span></div>':''}
    <div class="res mut"><span>IIBB percepción (crédito)</span><span>${money(R.iibb)}</span></div>
    <div class="res"><span>DESEMBOLSO TOTAL EN ADUANA (caja)</span><b>${money(R.desemb)}</b></div>
    <div class="res"><span>% gasto impositivo sobre FOB</span><b>${pct(R.gastoPct)}</b></div>
