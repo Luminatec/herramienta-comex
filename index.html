@@ -450,16 +450,23 @@ async function findInvoiceItems(ix,dk){const r=S.seg[ix];const D=await embDocs(r
  // 260818.xls" matcheaba esProveedor por contener "petdur" en el
  // nombre y ganaba por sobre la PI/proforma real).
  const esNotaOFee=n=>/debit\s*note|credit\s*note|nota\s*de\s*d[eé]bito|nota\s*de\s*cr[eé]dito|financing\s*fee|service\s*fee/i.test(n);
+ // Nunca tomar como "factura del proveedor" una factura LOCAL (terminal/deposito fiscal/liquidacion/
+ // despacho/DI): estan en pesos y traen lineas de IVA debito fiscal que el parser confundia con
+ // productos (caso real LUMI_299: "FACTURA FINAL TERMINAL 4" -> "IVA DEBITO FISCAL" como item de USD 91M).
+ const esLocal=n=>/terminal|dep[oó]sito|liquidaci[oó]n|\bafip\b|\barca\b|despacho|\bdi\b/i.test(n);
+ // Defensa: descartar lineas fiscales / de totales que no son productos (IVA, debito/credito fiscal,
+ // percepciones, retenciones, subtotal, total, base imponible, gravado/exento).
+ const esItemFiscal=i=>{const d=(i.desc||'').toLowerCase();return /d[eé]bito\s*fiscal|cr[eé]dito\s*fiscal|\biva\b|percepci|retenci|^\s*subtotal|^\s*total\b|base\s*imponible|no\s*gravado|^\s*gravado|^\s*exento/.test(d);};
  // Defensa en profundidad para notas de debito/fee con nombre de
  // archivo atipico: si el contenido ya extraido tiene pinta de ser eso
  // (cantidades fraccionarias <1, o 1-2 lineas con "fee" en la
  // descripcion), se descarta el candidato en vez de aceptarlo.
  const pareceNotaODebito=its=>its.length>0&&(its.every(i=>{const q=num(i.qty);return q>0&&q<1;})||(its.length<=2&&its.some(i=>/\bfee\b/i.test(i.desc||''))));
- const all=D.items.filter(f=>/\.(xlsx?|pdf)$/i.test(f.name)&&!/^~\$/.test(f.name)&&!esNotaOFee(f.name)).map(f=>[f.name,f]);
+ const all=D.items.filter(f=>/\.(xlsx?|pdf)$/i.test(f.name)&&!/^~\$/.test(f.name)&&!esNotaOFee(f.name)&&!esLocal(f.name)).map(f=>[f.name,f]);
  const parse=async list=>{for(const [n,f] of list){try{let best=[];
    if(/\.pdf$/i.test(n)){const lines=await readPdfText(await f.get());best=detectCanonInvoice(lines,dk);if(!best.length)best=detectB2Box(lines,dk);if(!best.length)best=detectItems(lines.map(l=>l.split(/\s{2,}/)),dk);if(!best.length)best=detectInvoiceLines(lines,dk);}
    else{if(typeof XLSX==='undefined')continue;const wb=XLSX.read(new Uint8Array(await (await f.get()).arrayBuffer()),{type:'array'});wb.SheetNames.forEach(sn=>{const it=detectItems(XLSX.utils.sheet_to_json(wb.Sheets[sn],{header:1,defval:''}),dk);if(it.length>best.length)best=it;});}
-   if(best.length&&!pareceNotaODebito(best))return {items:best,file:n};
+   best=best.filter(i=>!esItemFiscal(i));if(best.length&&!pareceNotaODebito(best))return {items:best,file:n};
   }catch(e){}}return null;};
  const esDetalle=n=>/detalle/i.test(n)&&/\.xlsx?$/i.test(n);
  const det=all.filter(f=>esDetalle(f[0]));
