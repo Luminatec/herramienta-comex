@@ -613,14 +613,15 @@ function docsPend(r){const ch=r.docsChk||{};return docsExpected(r).filter(d=>!ch
 const PAISES=["Perú","Argentina"];const MODOS=["Marítimo","Aéreo","Terrestre","Plaza"];
 const SEGCOLS=[["id","Embarque ID"],["pais","País"],["prov","Proveedor"],["prod","Producto/Marca"],["origen","Origen"],["modo","Modo"],["inco","Incoterm"],["estado","Estado"],["fOrden","Fecha orden"],["etd","ETD"],["eta","ETA"],["fOfic","Fecha ofic."],["fLib","Fecha liber."],["docs","Docs pendientes"],["despa","Despachante"],["notas","Notas"],["costEst","Costo est. USD"],["costReal","Costo real USD"]];
 function diasETA(eta){if(!eta)return null;const d=Math.round((new Date(eta)-new Date().setHours(0,0,0,0))/86400000);return d;}
-function alerta(r){if(r.estado==="Entregado")return "";const dias=diasETA(r.eta);const pend=docsPend(r);if(dias!=null&&dias<0&&r.estado!=="Entregado"&&r.estado!=="Nacionalizado")return "Arribo vencido sin cerrar";if(pend.length&&dias!=null&&dias<=7&&dias>=0)return "Faltan docs y arribo próximo";return "";}
+function enViaje(e){return ["Embarcado","En tránsito","Arribado","En despacho"].includes(e);}
+function alerta(r){if(r.estado==="Entregado")return "";const dias=diasETA(r.eta);const pend=docsPend(r);if(dias!=null&&dias<0&&enViaje(r.estado))return "Arribo vencido sin cerrar";if(pend.length&&dias!=null&&dias<=7&&dias>=0&&enViaje(r.estado))return "Faltan docs y arribo próximo";return "";}
 function pagosInfo(r){const ps=r.pagos||[];const pend=ps.filter(p=>!p.pagado);let next=null;pend.forEach(p=>{if(p.fecha){const d=diasETA(p.fecha);if(next==null||(d!=null&&d<next.d))next={p,d};}});return {tot:ps.length,pagados:ps.filter(p=>p.pagado).length,pend:pend.length,saldo:pend.reduce((s,p)=>s+num(p.monto),0),next};}
 function estadoColor(e){return {"Orden de compra":"#8a9a97","En producción":"#c08a2e","Embarcado":"#2c7a70","En tránsito":"#2f6f8f","Arribado":"#3a6ea5","En despacho":"#c0662e","Nacionalizado":"#3a8f57","Entregado":"#2e7d32","Sin estado":"#8a9a97"}[e]||"#8a9a97";}
 function panelHTML(){
  const inS=r=>!peruMode()||r.pais==='Perú';
  const rows=S.seg.map((r,ix)=>({r,ix,d:diasETA(r.eta),a:alerta(r)})).filter(x=>inS(x.r));
- const active=rows.filter(x=>x.r.estado!=="Entregado");
- const soon=active.filter(x=>x.d!=null&&x.d>=0&&x.d<=7).sort((a,b)=>a.d-b.d);
+ const active=rows.filter(x=>x.r.estado!=="Entregado"&&x.r.estado!=="Nacionalizado");
+ const soon=active.filter(x=>x.d!=null&&x.d>=0&&x.d<=7&&enViaje(x.r.estado)).sort((a,b)=>a.d-b.d);
  const alerts=rows.filter(x=>x.a);
  const val=active.reduce((s,x)=>s+num(x.r.costEst),0);
  const duePagos=[];S.seg.forEach((r,ix)=>{if(!inS(r))return;(r.pagos||[]).forEach(p=>{if(!p.pagado&&p.fecha){const d=diasETA(p.fecha);if(d!=null&&d<=7)duePagos.push({ix,d,p,r});}});});duePagos.sort((a,b)=>a.d-b.d);
@@ -628,7 +629,7 @@ function panelHTML(){
  soon.forEach(x=>{seen[x.ix]=1;actions.push({ix:x.ix,txt:`<b>${x.r.id||'(sin ID)'}</b> · ${x.r.prod||''} — ${x.d<0?'arribo vencido hace '+(-x.d)+'d':(x.d===0?'arriba hoy':'arriba en '+x.d+'d')}`,urg:x.d});});
  alerts.forEach(x=>{if(!seen[x.ix]){seen[x.ix]=1;actions.push({ix:x.ix,txt:`<b>${x.r.id||''}</b> · ${x.a}`,urg:-50});}});
  duePagos.forEach(x=>{actions.push({ix:x.ix,txt:`<b>${x.r.id||''}</b> · pago ${x.p.concepto||''} USD ${money(num(x.p.monto))} — ${x.d<0?'vencido hace '+(-x.d)+'d':(x.d===0?'vence hoy':'vence en '+x.d+'d')}`,urg:x.d-0.1});});
- S.seg.forEach((r,ix)=>{if(!inS(r))return;if(r.estado==="Entregado")return;const p=docsPend(r);const dd=diasETA(r.eta);if(p.length&&((dd!=null&&dd<=7)||r.estado==="Arribado"||r.estado==="En despacho")&&!seen[ix]){seen[ix]=1;actions.push({ix,txt:`<b>${r.id||''}</b> · faltan docs: ${p.slice(0,3).map(x=>x[1]).join(', ')}${p.length>3?'…':''}`,urg:-20});}});
+ S.seg.forEach((r,ix)=>{if(!inS(r))return;if(r.estado==="Entregado")return;const p=docsPend(r);const dd=diasETA(r.eta);if(p.length&&enViaje(r.estado)&&((dd!=null&&dd<=7)||r.estado==="Arribado"||r.estado==="En despacho")&&!seen[ix]){seen[ix]=1;actions.push({ix,txt:`<b>${r.id||''}</b> · faltan docs: ${p.slice(0,3).map(x=>x[1]).join(', ')}${p.length>3?'…':''}`,urg:-20});}});
  actions.sort((a,b)=>a.urg-b.urg);
  const kpi=(n,l,c)=>`<div class="kpi"><div class="kn" style="color:${c||'var(--navy)'}">${n}</div><div class="kl">${l}</div></div>`;
  const list=actions.length?actions.map(a=>`<div class="actline" onclick="openEdit(${a.ix})">▸ ${a.txt}</div>`).join(''):`<div class="muted">Nada urgente por ahora 👍</div>`;
