@@ -346,6 +346,7 @@ function computeAR(){
 }
 function computePE(){
  const d=S.pe,p=S.params;
+ const excl=false; // Perú: no aplica la exclusión RG2226 (AR). Fix 24/11/2026: faltaba definirla y renderPE() tiraba "excl is not defined".
  const fobTot=d.items.reduce((s,i)=>s+num(i.qty)*num(i.fob),0);
  const items=d.items.map(i=>{const fob=num(i.qty)*num(i.fob);const part=fobTot?fob/fobTot:0;const cif=fob+(num(d.flete)+num(d.seguro))*part;const adv=cif*num(i.adv);return{...i,fob,part,cif,adv};});
  const cifTot=items.reduce((s,i)=>s+i.cif,0);
